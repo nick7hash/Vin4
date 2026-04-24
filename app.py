@@ -26,7 +26,7 @@ from components import (
 )
 
 # ── App ───────────────────────────────────────────────────────────────────────
-app = dash.Dash(
+dash_app = dash.Dash(
     __name__,
     suppress_callback_exceptions=True,
     title="Vinita Analytics",
@@ -37,10 +37,10 @@ app = dash.Dash(
         {"name": "theme-color", "content": "#0B0F1A"},
     ],
 )
-server = app.server
+app = dash_app.server
 
 # ── Loading screen injected via index_string ──────────────────────────────────
-app.index_string = """<!DOCTYPE html>
+dash_app.index_string = """<!DOCTYPE html>
 <html>
   <head>
     {%metas%}
@@ -136,7 +136,7 @@ app.index_string = """<!DOCTYPE html>
   </body>
 </html>"""
 
-app.title = "Vinita Analytics"
+dash_app.title = "Vinita Analytics"
 
 # ── Default dates (fetched once at startup) ───────────────────────────────────
 _default_start, _default_end = get_default_dates()
@@ -319,10 +319,10 @@ def layout():
     )
 
 
-app.layout = layout
+dash_app.layout = layout
 
 # ── Callback 1: Populate dropdowns ──────────────────────────────────────────────
-@app.callback(
+@dash_app.callback(
     Output("filter-platform", "options"),
     Input("interval", "n_intervals"),
     prevent_initial_call=False,
@@ -337,7 +337,7 @@ def load_dropdowns(_):
 
 
 # ── Callback 2: KPI scorecards ───────────────────────────────────────────────
-@app.callback(
+@dash_app.callback(
     Output("kpi-grid", "children"),
     Input("filter-dates",    "start_date"),
     Input("filter-dates",    "end_date"),
@@ -374,7 +374,7 @@ def update_kpis(start, end, country, platform, _):
 
 
 # ── Callback 3: Proceeds trend chart ────────────────────────────────────────
-@app.callback(
+@dash_app.callback(
     Output("chart-proceeds", "figure"),
     Input("filter-dates",      "start_date"),
     Input("filter-dates",      "end_date"),
@@ -398,7 +398,7 @@ def update_proceeds(start, end, country, platform, gran_data, _):
 
 
 # ── Callback 4: ARPU line + platform bar ────────────────────────────────────
-@app.callback(
+@dash_app.callback(
     Output("chart-arpu-line",     "figure"),
     Output("chart-arpu-platform", "figure"),
     Input("filter-dates",      "start_date"),
@@ -428,7 +428,7 @@ def update_arpu(start, end, platform, gran_data, _):
 
 # ── Callback 5: Drill-down controls ─────────────────────────────────────────
 # Change 8: also output the level span text so the label updates reactively
-@app.callback(
+@dash_app.callback(
     Output("store-granularity",   "data"),
     Output("gran-proceeds-level", "children"),   # ← new: update level label
     Output("gran-arpu-level",     "children"),   # ← new: update level label
@@ -473,7 +473,7 @@ def handle_drilldown(proc_up, proc_down, arpu_up, arpu_down, current_gran):
 
 
 # ── Callback 6: Churn + CAC + ROAS + CAC-LTV Thresholds ────────────────────
-@app.callback(
+@dash_app.callback(
     Output("chart-churn",   "figure"),
     Output("chart-cac",     "figure"),
     Output("chart-roas",    "figure"),
@@ -527,7 +527,7 @@ def update_customer_charts(start, end, country, platform, _):
 
 # ── Callback 7: LTV cohort chart (with dedicated country filter) ─────────────
 # Change 5: uses filter-ltv-country instead of the global filter-country
-@app.callback(
+@dash_app.callback(
     Output("chart-ltv", "figure"),
     Input("filter-dates",       "start_date"),
     Input("filter-dates",       "end_date"),
@@ -551,4 +551,4 @@ def update_ltv(start, end, ltv_country, platform, _):
 
 # ── Run ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    app.run(debug=True, host="127.0.0.1", port=8050)
+    dash_app.run(debug=True, host="127.0.0.1", port=8050)
