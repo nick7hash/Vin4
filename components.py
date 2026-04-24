@@ -5,7 +5,10 @@ components.py — Reusable UI components for Vinita Analytics Dashboard.
 import plotly.graph_objects as go
 from dash import html, dcc
 
-# ── Palette ───────────────────────────────────────────────────────────────────
+# =============================================================================
+# ── Color Palette & Universal Chart Layout ──
+# These settings define the "Dark Mode" aesthetic for all Plotly charts.
+# =============================================================================
 ACCENT_COLORS = ["#6C7CFF", "#A855F7", "#EC4899", "#34D399", "#F59E0B", "#22D3EE"]
 
 CHART_LAYOUT = dict(
@@ -22,7 +25,10 @@ CHART_LAYOUT = dict(
                 borderwidth=1, font=dict(color="#E5E7EB")),
 )
 
-# ── Formatters ────────────────────────────────────────────────────────────────
+# =============================================================================
+# ── Text Formatters ──
+# Helper functions to convert large numbers into readable text (e.g. 1500 -> 1.5K)
+# =============================================================================
 def fmt_currency(v, prefix="$"):
     if v is None: return f"{prefix}0"
     v = float(v)
@@ -37,14 +43,16 @@ def fmt_count(v):
     if abs(v) >= 1_000:     return f"{v/1_000:.1f}K"
     return f"{v:,}"
 
-# ── Delta badge ───────────────────────────────────────────────────────────────
+# =============================================================================
+# ── HTML Components (Cards & Controls) ──
+# These functions generate the raw HTML for the boxes on the screen.
+# =============================================================================
 def delta_badge(pct):
     if pct is None: return html.Span()
     cls  = "delta-badge positive" if pct >= 0 else "delta-badge negative"
     icon = "▲" if pct >= 0 else "▼"
     return html.Span(f"{icon} {abs(pct):.1f}%", className=cls)
 
-# ── KPI Card ─────────────────────────────────────────────────────────────────
 def kpi_card(card_id, title, value, subtitle="", delta=None, icon="◈", featured=False):
     return html.Div(
         id=f"kpi-card-{card_id}",
@@ -123,7 +131,10 @@ def proceeds_figure(df, granularity="Day"):
     fig.update_layout(**layout)
     return fig
 
-# ── ARPU line chart figure ────────────────────────────────────────────────────
+# =============================================================================
+# ── ARPU Line Chart Figure ──
+# Generates the multi-line chart comparing ARPU across different platforms.
+# =============================================================================
 def arpu_line_figure(df, granularity="Day"):
     if df.empty:
         return _empty_figure("No ARPU data for this period")
@@ -158,7 +169,10 @@ def arpu_line_figure(df, granularity="Day"):
     fig.update_layout(**layout)
     return fig
 
-# ── ARPU by platform bar chart ────────────────────────────────────────────────
+# =============================================================================
+# ── ARPU by Platform Bar Chart ──
+# Generates the vertical bar chart summarizing ARPU by platform.
+# =============================================================================
 def arpu_platform_figure(df):
     if df.empty:
         return _empty_figure("No platform data for this period")

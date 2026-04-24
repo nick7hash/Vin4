@@ -155,8 +155,12 @@ def layout():
     return html.Div(
         className="app-shell",
         children=[
-            # ── Stores ──
-            # Granularity state stored client-side; survives callbacks without BQ re-query
+            # =====================================================================
+            # ── Stores (Hidden Memory) ──
+            # Stores act like invisible variables in the browser. 
+            # 'store-dates' remembers the selected date range.
+            # 'store-granularity' remembers whether you are viewing charts by Day, Month, or Year.
+            # =====================================================================
             dcc.Store(id="store-dates",
                       data={"start": str(_default_start), "end": str(_default_end)}),
             dcc.Store(id="store-granularity", data={"proceeds": "Day", "arpu": "Day"}),
@@ -226,12 +230,17 @@ def layout():
                 ]),
             ]),
 
-            # ══════════════ MAIN ══════════════
+            # =====================================================================
+            # ══════════════ MAIN CONTENT AREA ══════════════
+            # This is where all the charts and scorecards are displayed.
+            # `dcc.Loading` wraps the entire area so a spinner shows up when data is loading.
+            # =====================================================================
             html.Main(className="main-content", children=[
 
                 dcc.Loading(type="default", color="#4B5563", children=[
 
-                    # ── KPI scorecards ──
+                    # ── KPI Scorecards (Top Row) ──
+                    # These cards show the high-level summary (Active Subs, Revenue, Proceeds, Spend).
                     html.Div("Key Metrics", className="section-label"),
                     html.Div(id="kpi-grid", className="kpi-grid"),
 
@@ -315,13 +324,31 @@ def layout():
                     ),
                 ]),
             ]),
+            
+            # ── Footer ──
+            html.Footer(
+                "Powered by Razorlytics",
+                className="app-footer",
+                style={
+                    "textAlign": "center",
+                    "padding": "24px 0",
+                    "color": "#6B7280",
+                    "fontSize": "13px",
+                    "fontFamily": "Inter, sans-serif",
+                    "marginTop": "20px"
+                }
+            )
         ],
     )
 
 
 dash_app.layout = layout
 
-# ── Callback 1: Populate dropdowns ──────────────────────────────────────────────
+# =============================================================================
+# ── Callback 1: Populate Dropdowns ──
+# This function runs automatically on load to fetch the list of Platforms 
+# (e.g., iOS, Android) from the database and populates the dropdown menu.
+# =============================================================================
 @dash_app.callback(
     Output("filter-platform", "options"),
     Input("interval", "n_intervals"),
@@ -336,7 +363,12 @@ def load_dropdowns(_):
         return []
 
 
-# ── Callback 2: KPI scorecards ───────────────────────────────────────────────
+# =============================================================================
+# ── Callback 2: Update KPI Scorecards ──
+# Triggered whenever you change the Date, Country, or Platform filter.
+# It calls `load_kpi_data` from data.py to calculate the 4 main metrics 
+# and their percentage changes (deltas) compared to the previous period.
+# =============================================================================
 @dash_app.callback(
     Output("kpi-grid", "children"),
     Input("filter-dates",    "start_date"),
@@ -373,7 +405,12 @@ def update_kpis(start, end, country, platform, _):
     ]
 
 
-# ── Callback 3: Proceeds trend chart ────────────────────────────────────────
+# =============================================================================
+# ── Callback 3: Proceeds Trend Chart ──
+# Updates the line chart showing proceeds over time.
+# It listens to `store-granularity` so it knows whether to group data 
+# by Day, Month, or Year depending on what drilldown buttons you've clicked.
+# =============================================================================
 @dash_app.callback(
     Output("chart-proceeds", "figure"),
     Input("filter-dates",      "start_date"),
@@ -397,7 +434,12 @@ def update_proceeds(start, end, country, platform, gran_data, _):
         return _empty_figure(f"Error: {e}")
 
 
-# ── Callback 4: ARPU line + platform bar ────────────────────────────────────
+# =============================================================================
+# ── Callback 4: ARPU Line + Platform Bar Charts ──
+# Updates the two ARPU (Average Revenue Per User) charts.
+# Note: These metrics are global ("Total" country only) by design, so they 
+# intentionally ignore the Country and Platform dropdowns.
+# =============================================================================
 @dash_app.callback(
     Output("chart-arpu-line",     "figure"),
     Output("chart-arpu-platform", "figure"),
@@ -426,8 +468,11 @@ def update_arpu(start, end, platform, gran_data, _):
         return empty, empty
 
 
-# ── Callback 5: Drill-down controls ─────────────────────────────────────────
-# Change 8: also output the level span text so the label updates reactively
+# =============================================================================
+# ── Callback 5: Drill-down Controls ──
+# Handles the click events for the Up/Down arrows on charts (Day <-> Month <-> Year).
+# It updates `store-granularity` so that the charts know what timeframe to use.
+# =============================================================================
 @dash_app.callback(
     Output("store-granularity",   "data"),
     Output("gran-proceeds-level", "children"),   # ← new: update level label
@@ -472,7 +517,11 @@ def handle_drilldown(proc_up, proc_down, arpu_up, arpu_down, current_gran):
     return gran, gran.get("proceeds", "Day"), gran.get("arpu", "Day")
 
 
-# ── Callback 6: Churn + CAC + ROAS + CAC-LTV Thresholds ────────────────────
+# =============================================================================
+# ── Callback 6: Main Customer & Revenue Charts ──
+# Updates Churn Rate, CAC, ROAS, and CAC vs LTV Thresholds.
+# These all use the new "Fetch Once, Filter Often" strategy under the hood.
+# =============================================================================
 @dash_app.callback(
     Output("chart-churn",   "figure"),
     Output("chart-cac",     "figure"),
@@ -525,8 +574,12 @@ def update_customer_charts(start, end, country, platform, _):
     return churn_fig, cac_fig_out, roas_fig, clt_fig
 
 
-# ── Callback 7: LTV cohort chart (with dedicated country filter) ─────────────
-# Change 5: uses filter-ltv-country instead of the global filter-country
+# =============================================================================
+# ── Callback 7: LTV Cohort Chart ──
+# Updates the Lifetime Value cohort heatmap.
+# Note: It intentionally uses its own dedicated `filter-ltv-country` dropdown 
+# so you can analyze LTV independently of the main dashboard filters.
+# =============================================================================
 @dash_app.callback(
     Output("chart-ltv", "figure"),
     Input("filter-dates",       "start_date"),
