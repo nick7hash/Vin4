@@ -34,10 +34,27 @@ COUNTRY_MAP = {
 
 # ── Client ────────────────────────────────────────────────────────────────────
 def get_bq_client() -> bigquery.Client:
-    creds = service_account.Credentials.from_service_account_file(
-        KEY_PATH, scopes=["https://www.googleapis.com/auth/cloud-platform"]
-    )
-    return bigquery.Client(credentials=creds, project=PROJECT_ID)
+    # 1. Try reading credentials from the GOOGLE_CREDENTIALS environment variable (JSON string)
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS")
+    if creds_json:
+        try:
+            creds_info = json.loads(creds_json)
+            creds = service_account.Credentials.from_service_account_info(
+                creds_info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+            return bigquery.Client(credentials=creds, project=PROJECT_ID)
+        except Exception as e:
+            print(f"[data] Failed to parse GOOGLE_CREDENTIALS: {e}")
+
+    # 2. Fallback to the local vinita-key.json file if env var is missing or invalid
+    try:
+        creds = service_account.Credentials.from_service_account_file(
+            KEY_PATH, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        return bigquery.Client(credentials=creds, project=PROJECT_ID)
+    except FileNotFoundError:
+        # 3. Final fallback to Default Application Credentials
+        return bigquery.Client(project=PROJECT_ID)
 
 
 # ── Cache Helpers ─────────────────────────────────────────────────────────────
