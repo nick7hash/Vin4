@@ -1,0 +1,20 @@
+# ── Credentials — never commit this to a public repo ──
+vinita-key.json
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# ── Dash / Plotly ──
+.dash_cache/
+
+# ── OS ──
+.DS_Store
+Thumbs.db
