@@ -200,7 +200,7 @@ def layout():
                     # Country filter
                     dcc.Dropdown(
                         id="filter-country",
-                        options=[],
+                        options=LTV_COUNTRY_OPTIONS,
                         value=None,
                         clearable=True,
                         searchable=True,
@@ -323,19 +323,17 @@ app.layout = layout
 
 # ── Callback 1: Populate dropdowns ──────────────────────────────────────────────
 @app.callback(
-    Output("filter-country", "options"),
     Output("filter-platform", "options"),
     Input("interval", "n_intervals"),
     prevent_initial_call=False,
 )
 def load_dropdowns(_):
     try:
-        countries = get_country_options()
         platforms = get_platform_options()
-        return countries, platforms
+        return platforms
     except Exception as e:
         print(f"[app] load_dropdowns: {e}")
-        return [], []
+        return []
 
 
 # ── Callback 2: KPI scorecards ───────────────────────────────────────────────
@@ -353,7 +351,7 @@ def update_kpis(start, end, country, platform, _):
         start, end = str(_default_start), str(_default_end)
 
     try:
-        m = load_kpi_data(start, end, country)
+        m = load_kpi_data(start, end, country, platform)
     except Exception as e:
         print(f"[app] update_kpis: {e}")
         m = {"gross_revenue": 0, "proceeds": 0, "spend": 0, "active_subs": 0,
@@ -391,7 +389,7 @@ def update_proceeds(start, end, country, platform, gran_data, _):
         start, end = str(_default_start), str(_default_end)
     gran = gran_data.get("proceeds", "Day") if gran_data else "Day"
     try:
-        df = get_proceeds_trend(start, end, country)
+        df = get_proceeds_trend(start, end, country, platform)
         return proceeds_figure(df, gran)
     except Exception as e:
         print(f"[app] update_proceeds: {e}")

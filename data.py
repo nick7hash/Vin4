@@ -24,6 +24,14 @@ KEY_PATH     = os.path.join(os.path.dirname(__file__), "vinita-key.json")
 CACHE: dict = {}
 CACHE_TTL   = 300  # seconds
 
+# Map 2-letter codes to full names for rc_country
+COUNTRY_MAP = {
+    "US": "United States",
+    "GB": "United Kingdom",
+    "CA": "Canada",
+    "AU": "Australia"
+}
+
 # ── Client ────────────────────────────────────────────────────────────────────
 def get_bq_client() -> bigquery.Client:
     creds = service_account.Credentials.from_service_account_file(
@@ -108,16 +116,18 @@ def get_platform_options() -> list[dict]:
 
 
 # ── Main KPI data (3 scorecards) ──────────────────────────────────────────────
-def load_kpi_data(start_date, end_date, country=None) -> dict:
+def load_kpi_data(start_date, end_date, country=None, platform=None) -> dict:
     """Returns aggregated KPIs for the selected period + prior period for delta."""
     def _query():
         client = get_bq_client()
 
-        def _where(s, e, c):
-            # Filter out 'Total' to avoid double counting across all countries
+        def _where(s, e, c, p):
             conds = [f"CAST(date AS DATE) BETWEEN '{s}' AND '{e}'", "rc_country != 'Total'"]
             if c and c not in ("", "All"):
-                conds.append(f"rc_country = '{c}'")
+                mapped_c = COUNTRY_MAP.get(c, c)
+                conds.append(f"rc_country = '{mapped_c}'")
+            if p and p not in ("", "All"):
+                conds.append(f"rc_platform = '{p}'")
             return " AND ".join(conds)
 
         try:
@@ -134,7 +144,7 @@ def load_kpi_data(start_date, end_date, country=None) -> dict:
                     SUM(gross_revenue) AS gross_revenue,
                     SUM(proceeds)      AS proceeds,
                     SUM(spend)         AS spend
-                FROM `{TABLE}` WHERE {_where(s, e, country)}
+                FROM `{TABLE}` WHERE {_where(s, e, country, platform)}
             """
             return client.query(q).to_dataframe().iloc[0]
 
@@ -142,11 +152,11 @@ def load_kpi_data(start_date, end_date, country=None) -> dict:
             q = f"""
                 SELECT SUM(active_subscriptions) AS active_subs
                 FROM `{TABLE}`
-                WHERE {_where(s, e, country)}
+                WHERE {_where(s, e, country, platform)}
                   AND CAST(date AS DATE) = (
                       SELECT MAX(CAST(date AS DATE))
                       FROM `{TABLE}`
-                      WHERE {_where(s, e, country)}
+                      WHERE {_where(s, e, country, platform)}
                   )
             """
             try:
@@ -188,18 +198,20 @@ def load_kpi_data(start_date, end_date, country=None) -> dict:
             return {"gross_revenue": 0, "proceeds": 0, "spend": 0, "active_subs": 0,
                     "gr_delta": 0, "pr_delta": 0, "sp_delta": 0, "subs_delta": 0}
 
-    key = _cache_key('kpi_data', {'start': start_date, 'end': end_date, 'country': country})
+    key = _cache_key('kpi_data', {'start': start_date, 'end': end_date, 'country': country, 'platform': platform})
     return _get_cached(key, _query)
 
 
 # ── Proceeds trend (line chart) ───────────────────────────────────────────────
-def get_proceeds_trend(start_date, end_date, country=None) -> pd.DataFrame:
+def get_proceeds_trend(start_date, end_date, country=None, platform=None) -> pd.DataFrame:
     def _query():
         client = get_bq_client()
-        # Filter out 'Total' to avoid double counting
         conds  = [f"CAST(date AS DATE) BETWEEN '{start_date}' AND '{end_date}'", "rc_country != 'Total'"]
         if country and country not in ("", "All"):
-            conds.append(f"rc_country = '{country}'")
+            mapped_c = COUNTRY_MAP.get(country, country)
+            conds.append(f"rc_country = '{mapped_c}'")
+        if platform and platform not in ("", "All"):
+            conds.append(f"rc_platform = '{platform}'")
         where = " AND ".join(conds)
 
         q = f"""
@@ -218,7 +230,7 @@ def get_proceeds_trend(start_date, end_date, country=None) -> pd.DataFrame:
             print(f"[data] get_proceeds_trend: {e}")
             return pd.DataFrame(columns=["date", "proceeds"])
 
-    key = _cache_key('proceeds_trend', {'start': start_date, 'end': end_date, 'country': country})
+    key = _cache_key('proceeds_trend', {'start': start_date, 'end': end_date, 'country': country, 'platform': platform})
     return _get_cached(key, _query)
 
 
@@ -296,10 +308,10 @@ def get_arpu_by_platform(start_date, end_date) -> pd.DataFrame:
 def get_monthly_churn(start_date, end_date, country=None, platform=None) -> pd.DataFrame:
     client = get_bq_client()
 
-    # Filter out 'Total' to avoid double counting
     conds = [f"DATE(date) BETWEEN '{start_date}' AND '{end_date}'", "rc_country != 'Total'"]
     if country and country not in ("", "All", "Total"):
-        conds.append(f"rc_country = '{country}'")
+        mapped_c = COUNTRY_MAP.get(country, country)
+        conds.append(f"rc_country = '{mapped_c}'")
     if platform and platform not in ("", "All"):
         conds.append(f"rc_platform = '{platform}'")
 
@@ -486,10 +498,10 @@ def get_roas_data(start_date, end_date, country=None, platform=None) -> pd.DataF
 def get_cac_data(start_date, end_date, country=None, platform=None) -> pd.DataFrame:
     client = get_bq_client()
 
-    # Filter out 'Total' to avoid double counting
     conds = [f"DATE(date) BETWEEN '{start_date}' AND '{end_date}'", "rc_country != 'Total'"]
     if country and country not in ("", "All", "Total"):
-        conds.append(f"rc_country = '{country}'")
+        mapped_c = COUNTRY_MAP.get(country, country)
+        conds.append(f"rc_country = '{mapped_c}'")
     if platform and platform not in ("", "All"):
         conds.append(f"rc_platform = '{platform}'")
 
@@ -526,8 +538,8 @@ def get_cac_data(start_date, end_date, country=None, platform=None) -> pd.DataFr
             df['date'] = pd.to_datetime(df['date'])
             for col in ['total_spend', 'total_new_paid_subscriptions', 'cac']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-            # Filter rows where CAC is meaningful (>0)
-            df = df[df['cac'] > 0].copy()
+            # Filter rows where CAC is meaningful (>=0 instead of >0 to include periods with 0 spend)
+            df = df[df['cac'] >= 0].copy()
             return df
         except Exception as e:
             print(f"[data] get_cac_data ERROR: {e}")
@@ -558,7 +570,8 @@ def get_cac_ltv_thresholds(start_date, end_date, country=None, platform=None) ->
     ltv_conds = [f"DATE(date) BETWEEN '{start_date}' AND '{end_date}'"]
 
     if country and country not in ("", "All", "Total"):
-        cac_conds.append(f"rc_country = '{country}'")
+        mapped_c = COUNTRY_MAP.get(country, country)
+        cac_conds.append(f"rc_country = '{mapped_c}'")
         ltv_conds.append(f"country = '{country}'")
     if platform and platform not in ("", "All"):
         cac_conds.append(f"rc_platform = '{platform}'")
@@ -597,7 +610,7 @@ def get_cac_ltv_thresholds(start_date, end_date, country=None, platform=None) ->
         SAFE_DIVIDE(l.ltv_30d, 2) AS aggressive_cac_threshold
     FROM cac_data c
     INNER JOIN ltv_data l ON c.date = l.date
-    WHERE c.cac IS NOT NULL AND c.cac > 0 AND l.ltv_30d > 0
+    WHERE c.cac IS NOT NULL AND c.cac >= 0 AND l.ltv_30d > 0
     ORDER BY c.date
     """
 
