@@ -1,0 +1,500 @@
+/* Vinita Analytics Dashboard - Custom Styles */
+
+/* ── Google Font ─────────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* ── Drill-down Controls ───────────────────────────────────────────────────── */
+.drilldown-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(17, 24, 39, 0.6);
+    border: 1px solid #374151;
+    border-radius: 8px;
+    padding: 4px 8px;
+    font-family: "Inter", sans-serif;
+}
+
+.drilldown-btn {
+    background: transparent;
+    border: none;
+    color: #9CA3AF;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    padding: 4px 6px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    min-width: 24px;
+}
+
+.drilldown-btn:hover:not(:disabled) {
+    background: rgba(124, 58, 237, 0.2);
+    color: #7C3AED;
+}
+
+.drilldown-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.drilldown-level {
+    color: #E5E7EB;
+    font-size: 12px;
+    font-weight: 500;
+    min-width: 40px;
+    text-align: center;
+}
+
+/* ── Enhanced Chart Cards ──────────────────────────────────────────────────── */
+.chart-card {
+    background: linear-gradient(145deg, #111827 0%, #1F2937 100%);
+    border: 1px solid #374151;
+    border-radius: 12px;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.chart-card:hover {
+    border-color: #7C3AED;
+    box-shadow: 0 8px 32px rgba(124, 58, 237, 0.12);
+}
+
+.chart-card__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: rgba(17, 24, 39, 0.8);
+    border-bottom: 1px solid #374151;
+}
+
+.chart-card__title {
+    color: #E5E7EB;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
+}
+
+.chart-card__controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.chart-graph {
+    background: rgba(0, 0, 0, 0.2);
+}
+
+/* ── Enhanced KPI Cards ─────────────────────────────────────────────────────── */
+.kpi-card {
+    background: linear-gradient(145deg, #111827 0%, #1F2937 100%);
+    border: 1px solid #374151;
+    border-radius: 12px;
+    padding: 16px;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.kpi-card:hover {
+    border-color: #4B5563;
+    transform: translateY(-2px);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+}
+
+.kpi-card--featured {
+    border-color: #4B5563;
+    background: linear-gradient(145deg, #1F2937 0%, #2D3748 100%);
+}
+
+.kpi-card--featured::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: #4B5563;
+}
+
+.kpi-card__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.kpi-card__icon {
+    font-size: 20px;
+    opacity: 0.8;
+}
+
+.kpi-card__value {
+    font-size: 24px;
+    font-weight: 700;
+    color: #E5E7EB;
+    margin-bottom: 8px;
+    font-family: "Inter", sans-serif;
+}
+
+.kpi-card__title {
+    color: #9CA3AF;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+
+.kpi-card__subtitle {
+    color: #6B7280;
+    font-size: 11px;
+    font-family: "Inter", sans-serif;
+}
+
+/* ── Delta Badge ─────────────────────────────────────────────────────────────── */
+.delta-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-family: "Inter", sans-serif;
+}
+
+.delta-badge.positive {
+    background: rgba(34, 197, 94, 0.2);
+    color: #22C55E;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.delta-badge.negative {
+    background: rgba(239, 68, 68, 0.2);
+    color: #EF4444;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* ── Header Controls Enhancement ─────────────────────────────────────────────── */
+.header-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+/* ── Date Picker Dark Mode Override ────────────────────────────────────────────
+   Dash uses react-dates under the hood. Override all white surfaces. */
+.DateRangePickerInput {
+    background-color: #111827 !important;
+    border: 1px solid #374151 !important;
+    border-radius: 8px !important;
+    display: flex !important;
+    align-items: center !important;
+}
+
+.DateRangePickerInput_arrow {
+    color: #6B7280 !important;
+}
+
+.DateRangePickerInput__withBorder {
+    border: 1px solid #374151 !important;
+    border-radius: 8px !important;
+}
+
+.DateInput {
+    background: transparent !important;
+    width: 112px !important;
+}
+
+.DateInput_input {
+    background: transparent !important;
+    color: #E5E7EB !important;
+    font-family: "Inter", sans-serif !important;
+    font-size: 12.5px !important;
+    border-bottom: none !important;
+    padding: 6px 8px !important;
+    caret-color: #A855F7 !important;
+}
+
+.DateInput_input::placeholder {
+    color: #6B7280 !important;
+}
+
+.DateInput_input__focused {
+    border-bottom: 2px solid #A855F7 !important;
+}
+
+.DateRangePicker_picker {
+    background-color: #1F2937 !important;
+    border: 1px solid #374151 !important;
+    border-radius: 12px !important;
+    z-index: 999 !important;
+}
+
+.DayPicker {
+    background: #1F2937 !important;
+    border-radius: 12px !important;
+}
+
+.DayPicker__withBorder {
+    border: none !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+    border-radius: 12px !important;
+}
+
+.DayPickerNavigation_button {
+    background: transparent !important;
+    border: 1px solid #374151 !important;
+    border-radius: 6px !important;
+}
+
+.DayPickerNavigation_button:hover {
+    border-color: #A855F7 !important;
+}
+
+.DayPickerNavigation_svg__horizontal {
+    fill: #9CA3AF !important;
+}
+
+.CalendarMonthGrid {
+    background: #1F2937 !important;
+}
+
+.CalendarMonth {
+    background: #1F2937 !important;
+    padding: 0 13px !important;
+}
+
+.CalendarMonth_caption {
+    color: #E5E7EB !important;
+    font-family: "Inter", sans-serif !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+}
+
+.DayPicker_weekHeader {
+    color: #6B7280 !important;
+    font-family: "Inter", sans-serif !important;
+}
+
+.DayPicker_weekHeader_li small {
+    color: #6B7280 !important;
+}
+
+.CalendarDay__default {
+    background: transparent !important;
+    color: #D1D5DB !important;
+    border: 1px solid transparent !important;
+    font-family: "Inter", sans-serif !important;
+}
+
+.CalendarDay__default:hover {
+    background: rgba(124, 58, 237, 0.2) !important;
+    color: #E5E7EB !important;
+    border-color: #7C3AED !important;
+}
+
+.CalendarDay__selected,
+.CalendarDay__selected:active,
+.CalendarDay__selected:hover {
+    background: #7C3AED !important;
+    color: #FFFFFF !important;
+    border-color: #7C3AED !important;
+}
+
+.CalendarDay__selected_span {
+    background: rgba(124, 58, 237, 0.25) !important;
+    color: #E5E7EB !important;
+    border-color: rgba(124, 58, 237, 0.3) !important;
+}
+
+.CalendarDay__hovered_span,
+.CalendarDay__hovered_span:hover {
+    background: rgba(124, 58, 237, 0.15) !important;
+    color: #E5E7EB !important;
+    border-color: rgba(124, 58, 237, 0.2) !important;
+}
+
+.CalendarDay__blocked_out_of_range,
+.CalendarDay__blocked_out_of_range:hover {
+    color: #374151 !important;
+    background: transparent !important;
+}
+
+/* ── Dropdown Dark Styles ─────────────────────────────────────────────────────── */
+.platform-dropdown,
+.country-dropdown {
+    background: rgba(17, 24, 39, 0.8) !important;
+    border: 1px solid #374151 !important;
+    border-radius: 8px !important;
+}
+
+.Select-control,
+.platform-dropdown .Select-control,
+.country-dropdown .Select-control {
+    background: transparent !important;
+    border: none !important;
+    color: #E5E7EB !important;
+}
+
+.Select-placeholder,
+.platform-dropdown .Select-placeholder,
+.country-dropdown .Select-placeholder {
+    color: #9CA3AF !important;
+}
+
+.Select-menu-outer,
+.platform-dropdown .Select-menu-outer,
+.country-dropdown .Select-menu-outer {
+    background: #1F2937 !important;
+    border: 1px solid #374151 !important;
+    border-radius: 8px !important;
+}
+
+.Select-option,
+.platform-dropdown .Select-option,
+.country-dropdown .Select-option {
+    background: transparent !important;
+    color: #E5E7EB !important;
+}
+
+.Select-option:hover,
+.platform-dropdown .Select-option:hover,
+.country-dropdown .Select-option:hover {
+    background: rgba(124, 58, 237, 0.2) !important;
+}
+
+/* ── LTV Country Filter ──────────────────────────────────────────────────────── */
+.ltv-country-filter {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.ltv-country-label {
+    color: #9CA3AF;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: "Inter", sans-serif;
+    white-space: nowrap;
+}
+
+/* ── Loading States ─────────────────────────────────────────────────────────── */
+.loading-spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #374151;
+    border-top: 2px solid #7C3AED;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Responsive Design ─────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .chart-row {
+        flex-direction: column !important;
+        gap: 16px;
+    }
+
+    .header-controls {
+        flex-direction: column;
+        gap: 8px;
+        width: 100%;
+    }
+
+    .platform-dropdown,
+    .country-dropdown {
+        width: 100% !important;
+    }
+}
+
+/* ── Section Labels ─────────────────────────────────────────────────────────── */
+.section-label {
+    color: #9CA3AF;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 24px 0 16px 0;
+    font-family: "Inter", sans-serif;
+}
+
+.divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #374151, transparent);
+    margin: 32px 0;
+}
+
+/* ── Chart Row Layout ─────────────────────────────────────────────────────────── */
+.chart-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+/* ── App Shell ───────────────────────────────────────────────────────────────── */
+.app-shell {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #0B0F1A 0%, #111827 50%, #1F2937 100%);
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────────── */
+.app-header {
+    background: rgba(17, 24, 39, 0.95);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid #374151;
+    padding: 16px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.header-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.header-logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+}
+
+.header-title {
+    color: #E5E7EB;
+    font-size: 18px;
+    font-weight: 700;
+    font-family: "Inter", sans-serif;
+}
+
+.header-sub {
+    color: #9CA3AF;
+    font-size: 12px;
+    font-family: "Inter", sans-serif;
+}
+
+/* ── Main Content ───────────────────────────────────────────────────────────── */
+.main-content {
+    padding: 28px 40px;
+    max-width: 80%;
+    margin: 0 auto;
+}
+
+/* ── KPI Grid ─────────────────────────────────────────────────────────────── */
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 32px;
+}

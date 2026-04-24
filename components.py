@@ -61,7 +61,7 @@ def kpi_card(card_id, title, value, subtitle="", delta=None, icon="◈", feature
     )
 
 # ── Chart card wrapper ────────────────────────────────────────────────────────
-def chart_card(title, graph_id, controls=None):
+def chart_card(title, graph_id, controls=None, height=320):
     return html.Div(
         className="chart-card",
         children=[
@@ -71,14 +71,31 @@ def chart_card(title, graph_id, controls=None):
             ]),
             dcc.Graph(
                 id=graph_id,
-                config={"displayModeBar": False},
+                config={"displayModeBar": True, "displaylogo": False,
+                        "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d"]},
                 className="chart-graph",
-                style={"height": "320px"},
+                style={"height": f"{height}px"},
             ),
         ],
     )
 
+# ── Empty figure placeholder ──────────────────────────────────────────────────
+def _empty_figure(msg="No data"):
+    fig = go.Figure()
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        annotations=[dict(
+            text=msg, x=0.5, y=0.5, showarrow=False,
+            font=dict(color="#4B5563", size=14, family="Inter, sans-serif"),
+        )],
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
+    )
+    return fig
+
 # ── Proceeds line chart figure ────────────────────────────────────────────────
+# Change 2: fill color → dark purple, opacity 0.06, line → #7C3AED
 def proceeds_figure(df, granularity="Day"):
     if df.empty:
         return _empty_figure("No proceeds data for this period")
@@ -93,14 +110,15 @@ def proceeds_figure(df, granularity="Day"):
     fig.add_trace(go.Scatter(
         x=df["date"], y=df["proceeds"],
         mode="lines",
-        line=dict(color="#A855F7", width=2.5),
+        line=dict(color="#7C3AED", width=2.5),
         fill="tozeroy",
-        fillcolor="rgba(168,85,247,0.08)",
+        fillcolor="rgba(124,58,237,0.06)",
         name="Proceeds",
         hovertemplate="<b>$%{y:,.0f}</b><extra></extra>",
     ))
     layout = dict(CHART_LAYOUT)
     layout["title"] = dict(text="", x=0)
+    layout["yaxis"] = dict(CHART_LAYOUT["yaxis"])
     layout["yaxis"]["tickprefix"] = "$"
     fig.update_layout(**layout)
     return fig
@@ -135,6 +153,7 @@ def arpu_line_figure(df, granularity="Day"):
         ))
 
     layout = dict(CHART_LAYOUT)
+    layout["yaxis"] = dict(CHART_LAYOUT["yaxis"])
     layout["yaxis"]["tickprefix"] = "$"
     fig.update_layout(**layout)
     return fig
@@ -155,27 +174,227 @@ def arpu_platform_figure(df):
         hovertemplate="<b>%{x}</b><br>Avg ARPU: $%{y:.2f}<extra></extra>",
     ))
     layout = dict(CHART_LAYOUT)
+    layout["yaxis"] = dict(CHART_LAYOUT["yaxis"])
     layout["yaxis"]["tickprefix"] = "$"
-    layout["xaxis"]["gridcolor"]  = "rgba(0,0,0,0)"
+    layout["xaxis"] = dict(CHART_LAYOUT["xaxis"])
+    layout["xaxis"]["gridcolor"] = "rgba(0,0,0,0)"
     fig.update_layout(**layout)
     return fig
 
-# ── Empty figure placeholder ──────────────────────────────────────────────────
-def _empty_figure(msg="No data"):
+# ── Monthly Churn Chart ────────────────────────────────────────────────────────
+def churn_figure(df):
+    if df.empty:
+        return _empty_figure("No churn data for this period")
+
     fig = go.Figure()
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        annotations=[dict(
-            text=msg, x=0.5, y=0.5, showarrow=False,
-            font=dict(color="#4B5563", size=14, family="Inter, sans-serif"),
-        )],
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False),
-    )
+    fig.add_trace(go.Scatter(
+        x=df["month"], y=df["churn_rate_pct"],
+        mode="lines+markers",
+        line=dict(color="#EF4444", width=2.5),
+        marker=dict(size=4),
+        fill="tozeroy",
+        fillcolor="rgba(239,68,68,0.1)",
+        name="Churn Rate",
+        hovertemplate="<b>%{x|%b %Y}</b><br>Churn: %{y:.2f}%<extra></extra>",
+    ))
+
+    layout = dict(CHART_LAYOUT)
+    layout["yaxis"] = dict(CHART_LAYOUT["yaxis"])
+    layout["yaxis"]["ticksuffix"] = "%"
+    layout["yaxis"]["tickformat"] = ".1f"
+    fig.update_layout(**layout)
     return fig
 
-# ── Granularity control ───────────────────────────────────────────────────────
+# ── LTV by Cohort Chart ────────────────────────────────────────────────────────
+# Change 7: 7d/30d/90d visible by default; 180d/365d set to legendonly
+def ltv_cohort_figure(df):
+    if df.empty:
+        return _empty_figure("No LTV data for this period")
+
+    fig = go.Figure()
+
+    # Group by date and calculate average LTV
+    agg_cols = {}
+    for period in ['7d', '30d', '90d', '180d', '365d']:
+        col = f'realized_ltv_{period}'
+        if col in df.columns:
+            agg_cols[col] = 'mean'
+
+    if not agg_cols:
+        return _empty_figure("No LTV columns found")
+
+    ltv_summary = df.groupby('date').agg(agg_cols).reset_index()
+
+    periods = ['7d', '30d', '90d', '180d', '365d']
+    colors  = ['#6C7CFF', '#A855F7', '#34D399', '#F59E0B', '#EC4899']
+    # 180d and 365d are hidden by default but togglable via legend
+    visibility = {
+        '7d':   True,
+        '30d':  True,
+        '90d':  True,
+        '180d': 'legendonly',
+        '365d': 'legendonly',
+    }
+
+    for i, period in enumerate(periods):
+        col = f'realized_ltv_{period}'
+        if col in ltv_summary.columns:
+            fig.add_trace(go.Scatter(
+                x=ltv_summary['date'],
+                y=ltv_summary[col],
+                mode="lines+markers",
+                name=f'LTV {period}',
+                line=dict(color=colors[i], width=2),
+                marker=dict(size=3),
+                visible=visibility.get(period, True),
+                hovertemplate=f"<b>LTV {period}</b>: $%{{y:.2f}}<extra></extra>",
+            ))
+
+    layout = dict(CHART_LAYOUT)
+    layout["yaxis"] = dict(CHART_LAYOUT["yaxis"])
+    layout["yaxis"]["tickprefix"] = "$"
+    fig.update_layout(**layout)
+    return fig
+
+# ── ROAS Chart ────────────────────────────────────────────────────────────────
+def roas_figure(df):
+    if df.empty:
+        return _empty_figure("No ROAS data for this period")
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df["date"], y=df["roas"],
+        mode="lines+markers",
+        line=dict(color="#10B981", width=2.5),
+        marker=dict(size=4),
+        fill="tozeroy",
+        fillcolor="rgba(16,185,129,0.1)",
+        name="ROAS",
+        hovertemplate="<b>%{x|%b %Y}</b><br>ROAS: %{y:.2f}x<extra></extra>",
+    ))
+
+    # Reference line at ROAS = 1
+    fig.add_hline(y=1, line_dash="dash", line_color="#6B7280", opacity=0.5,
+                  annotation_text="Break-even", annotation_font_color="#6B7280")
+
+    layout = dict(CHART_LAYOUT)
+    layout["yaxis"] = dict(CHART_LAYOUT["yaxis"])
+    layout["yaxis"]["tickformat"] = ".1f"
+    layout["yaxis"]["ticksuffix"] = "x"
+    fig.update_layout(**layout)
+    return fig
+
+# ── CAC Chart ────────────────────────────────────────────────────────────────
+def cac_figure(df):
+    if df.empty:
+        return _empty_figure("No CAC data for this period")
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df["date"], y=df["cac"],
+        mode="lines+markers",
+        line=dict(color="#F59E0B", width=2.5),
+        marker=dict(size=4),
+        fill="tozeroy",
+        fillcolor="rgba(245,158,11,0.1)",
+        name="CAC",
+        hovertemplate="<b>%{x|%b %Y}</b><br>CAC: $%{y:.2f}<extra></extra>",
+    ))
+
+    layout = dict(CHART_LAYOUT)
+    layout["yaxis"] = dict(CHART_LAYOUT["yaxis"])
+    layout["yaxis"]["tickprefix"] = "$"
+    fig.update_layout(**layout)
+    return fig
+
+# ── CAC vs LTV Thresholds Chart ───────────────────────────────────────────────
+# Change 6: multi-line chart with CAC, LTV30d, Healthy (LTV/3), Aggressive (LTV/2)
+def cac_ltv_threshold_figure(df):
+    if df.empty:
+        return _empty_figure("No data available for CAC vs LTV Thresholds")
+
+    fig = go.Figure()
+
+    # LTV 30d line
+    if "ltv_30d" in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df["date"], y=df["ltv_30d"],
+            mode="lines+markers",
+            name="LTV 30d",
+            line=dict(color="#6C7CFF", width=2),
+            marker=dict(size=3),
+            hovertemplate="<b>LTV 30d</b>: $%{y:.2f}<extra></extra>",
+        ))
+
+    # Healthy CAC threshold (LTV/3) — dashed green
+    if "healthy_cac_threshold" in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df["date"], y=df["healthy_cac_threshold"],
+            mode="lines",
+            name="Healthy CAC (LTV÷3)",
+            line=dict(color="#34D399", width=1.5, dash="dash"),
+            hovertemplate="<b>Healthy Threshold</b>: $%{y:.2f}<extra></extra>",
+        ))
+
+    # Aggressive CAC threshold (LTV/2) — dashed orange
+    if "aggressive_cac_threshold" in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df["date"], y=df["aggressive_cac_threshold"],
+            mode="lines",
+            name="Aggressive CAC (LTV÷2)",
+            line=dict(color="#F59E0B", width=1.5, dash="dot"),
+            hovertemplate="<b>Aggressive Threshold</b>: $%{y:.2f}<extra></extra>",
+        ))
+
+    # Actual CAC line — solid red-orange
+    if "cac" in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df["date"], y=df["cac"],
+            mode="lines+markers",
+            name="Actual CAC",
+            line=dict(color="#EC4899", width=2.5),
+            marker=dict(size=4),
+            hovertemplate="<b>Actual CAC</b>: $%{y:.2f}<extra></extra>",
+        ))
+
+    layout = dict(CHART_LAYOUT)
+    layout["yaxis"] = dict(CHART_LAYOUT["yaxis"])
+    layout["yaxis"]["tickprefix"] = "$"
+    layout["legend"] = dict(
+        bgcolor="rgba(17,24,39,0.85)", bordercolor="#1F2937",
+        borderwidth=1, font=dict(color="#E5E7EB"),
+        orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+    )
+    fig.update_layout(**layout)
+    return fig
+
+# ── Drill-down control ────────────────────────────────────────────────────────
+# Change 8: give the level span an id so it can be updated by callback
+def drilldown_control(ctrl_id, current_level="Day"):
+    """Drill-down up/down arrows with an updateable level label."""
+    return html.Div([
+        html.Button(
+            "▲",
+            id=f"{ctrl_id}-up",
+            className="drilldown-btn drilldown-up",
+            title="Drill up (coarser)",
+            n_clicks=0,
+        ),
+        html.Span(
+            current_level,
+            id=f"{ctrl_id}-level",   # ← now has an ID for callback updates
+            className="drilldown-level",
+        ),
+        html.Button(
+            "▼",
+            id=f"{ctrl_id}-down",
+            className="drilldown-btn drilldown-down",
+            title="Drill down (finer)",
+            n_clicks=0,
+        ),
+    ], className="drilldown-control")
+
+# ── Granularity control (legacy, kept for reference) ─────────────────────────
 def granularity_control(ctrl_id, value="Day"):
     return dcc.RadioItems(
         id=ctrl_id,
