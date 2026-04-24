@@ -88,10 +88,10 @@
 
 /* ── Enhanced KPI Cards ─────────────────────────────────────────────────────── */
 .kpi-card {
-    background: linear-gradient(145deg, #111827 0%, #1F2937 100%);
-    border: 1px solid #374151;
+    background: linear-gradient(145deg, #0B0F1A 0%, #111827 100%);
+    border: 1px solid #1F2937;
     border-radius: 12px;
-    padding: 16px;
+    padding: 24px 20px;
     transition: all 0.3s ease;
     position: relative;
     overflow: hidden;
@@ -104,8 +104,8 @@
 }
 
 .kpi-card--featured {
-    border-color: #4B5563;
-    background: linear-gradient(145deg, #1F2937 0%, #2D3748 100%);
+    border-color: #374151;
+    background: linear-gradient(145deg, #111827 0%, #1F2937 100%);
 }
 
 .kpi-card--featured::before {

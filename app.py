@@ -362,16 +362,16 @@ def update_kpis(start, end, country, platform, _):
     return [
         kpi_card("subs", "Active Subscriptions", fmt_count(m.get("active_subs", 0)),
                  subtitle=f"As of {end}", delta=m.get("subs_delta", 0),
-                 icon="👥", featured=True),
+                 icon="", featured=True),
         kpi_card("gr",  "Gross Revenue", fmt_currency(m.get("gross_revenue", 0)),
                  subtitle=f"{start} → {end}", delta=m.get("gr_delta", 0),
-                 icon="💰", featured=True),
+                 icon="", featured=True),
         kpi_card("pr",  "Proceeds",      fmt_currency(m.get("proceeds", 0)),
                  subtitle=f"{start} → {end}", delta=m.get("pr_delta", 0),
-                 icon="🏦", featured=True),
+                 icon="", featured=True),
         kpi_card("sp",  "Spend",         fmt_currency(m.get("spend", 0)),
                  subtitle=f"{start} → {end}", delta=m.get("sp_delta", 0),
-                 icon="📣", featured=True),
+                 icon="", featured=True),
     ]
 
 

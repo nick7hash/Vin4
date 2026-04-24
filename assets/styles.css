@@ -8,8 +8,8 @@
 :root {
   --bg:          #0B0F1A;
   --bg2:         #0D1117;
-  --card:        #111827;
-  --card-h:      #161e2e;
+  --card:        #0D1117;
+  --card-h:      #111827;
   --border:      #1F2937;
   --border2:     #1a2235;
   --acc1:        #6C7CFF;
@@ -114,7 +114,7 @@ html,body{
 /* ── KPI grid (3 cards) ──────────────────────────────────── */
 .kpi-grid{
   display:grid;
-  grid-template-columns:repeat(3,1fr);
+  grid-template-columns:repeat(4,1fr);
   gap:18px;margin-bottom:28px;
 }
 @media(max-width:860px){.kpi-grid{grid-template-columns:repeat(2,1fr)}}
@@ -123,7 +123,7 @@ html,body{
 /* ── KPI card ────────────────────────────────────────────── */
 .kpi-card{
   background:var(--card);border:1px solid var(--border);
-  border-radius:var(--r);padding:22px 24px;
+  border-radius:var(--r);padding:30px 24px;
   box-shadow:var(--shadow);transition:var(--tr);
   position:relative;overflow:hidden;cursor:default;
 }
@@ -279,7 +279,7 @@ input.granularity-input:checked + .granularity-label{
 /* ── Skeleton ────────────────────────────────────────────── */
 @keyframes shimmer{0%{background-position:-400px 0}100%{background-position:400px 0}}
 .skel{
-  background:linear-gradient(90deg,#1a2235 25%,#222d42 50%,#1a2235 75%);
+  background:linear-gradient(90deg,#212a3f 25%,#2b364d 50%,#212a3f 75%);
   background-size:800px 100%;animation:shimmer 1.5s infinite;border-radius:6px;margin-bottom:10px;
 }
 .skel--s{height:12px;width:40%}.skel--l{height:28px;width:70%}.skel--m{height:10px;width:55%}
