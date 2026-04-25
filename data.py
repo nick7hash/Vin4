@@ -229,7 +229,7 @@ def _get_base_final_df(start_date, end_date) -> pd.DataFrame:
                 SUM(installs) AS installs
             FROM `{TABLE}`
             WHERE CAST(date AS DATE) BETWEEN '{extended_start}' AND '{end_date}'
-              AND rc_country != 'Total'
+              AND (rc_country != 'Total' OR rc_country IS NULL)
             GROUP BY date, rc_country, rc_platform
         """
         try:
