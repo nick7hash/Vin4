@@ -146,14 +146,18 @@ def arpu_line_figure(df, granularity="Day"):
         pdf = df[df["platform"] == platform].copy()
         if granularity == "Month":
             pdf = (pdf.set_index("date")
-                      .resample("ME")["arpu"]
-                      .mean()
-                      .reset_index())
+                      .resample("ME").agg({
+                          "proceeds": "sum",
+                          "active_subs": "last"
+                      }).reset_index())
+            pdf["arpu"] = pdf.apply(lambda row: row["proceeds"] / row["active_subs"] if row["active_subs"] else 0, axis=1)
         elif granularity == "Year":
             pdf = (pdf.set_index("date")
-                      .resample("YE")["arpu"]
-                      .mean()
-                      .reset_index())
+                      .resample("YE").agg({
+                          "proceeds": "sum",
+                          "active_subs": "last"
+                      }).reset_index())
+            pdf["arpu"] = pdf.apply(lambda row: row["proceeds"] / row["active_subs"] if row["active_subs"] else 0, axis=1)
         fig.add_trace(go.Scatter(
             x=pdf["date"], y=pdf["arpu"],
             mode="lines+markers",
@@ -170,28 +174,37 @@ def arpu_line_figure(df, granularity="Day"):
     return fig
 
 # =============================================================================
-# ── ARPU by Platform Bar Chart ──
-# Generates the vertical bar chart summarizing ARPU by platform.
+# ── Conversion Rate Line Chart ──
+# Generates a line chart for Installs to Paid Conversion Rate.
 # =============================================================================
-def arpu_platform_figure(df):
+def conversion_rate_figure(df, granularity="Day"):
     if df.empty:
-        return _empty_figure("No platform data for this period")
+        return _empty_figure("No conversion data for this period")
 
-    colors = [ACCENT_COLORS[i % len(ACCENT_COLORS)] for i in range(len(df))]
-    fig = go.Figure(go.Bar(
-        x=df["platform"],
-        y=df["avg_arpu"],
-        marker=dict(color=colors, opacity=0.9),
-        text=[f"${v:.2f}" for v in df["avg_arpu"]],
-        textposition="outside",
-        textfont=dict(color="#E5E7EB", size=11),
-        hovertemplate="<b>%{x}</b><br>Avg ARPU: $%{y:.2f}<extra></extra>",
+    df = df.copy().sort_values("date")
+    if granularity == "Month":
+        df = df.set_index("date").resample("ME").sum().reset_index()
+        df["conversion_rate"] = df.apply(lambda x: (x['total_new_paid_subscriptions'] / x['installs'] * 100) if x['installs'] > 0 else 0, axis=1)
+    elif granularity == "Year":
+        df = df.set_index("date").resample("YE").sum().reset_index()
+        df["conversion_rate"] = df.apply(lambda x: (x['total_new_paid_subscriptions'] / x['installs'] * 100) if x['installs'] > 0 else 0, axis=1)
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df["date"], y=df["conversion_rate"],
+        mode="lines+markers",
+        line=dict(color="#22D3EE", width=2.5),
+        marker=dict(size=4),
+        fill="tozeroy",
+        fillcolor="rgba(34,211,238,0.1)",
+        name="Conversion Rate",
+        hovertemplate="<b>%{x|%b %Y}</b><br>Conversion: %{y:.2f}%<extra></extra>",
     ))
+
     layout = dict(CHART_LAYOUT)
     layout["yaxis"] = dict(CHART_LAYOUT["yaxis"])
-    layout["yaxis"]["tickprefix"] = "$"
-    layout["xaxis"] = dict(CHART_LAYOUT["xaxis"])
-    layout["xaxis"]["gridcolor"] = "rgba(0,0,0,0)"
+    layout["yaxis"]["ticksuffix"] = "%"
+    layout["yaxis"]["tickformat"] = ".2f"
     fig.update_layout(**layout)
     return fig
 
@@ -216,6 +229,29 @@ def churn_figure(df):
     layout["yaxis"] = dict(CHART_LAYOUT["yaxis"])
     layout["yaxis"]["ticksuffix"] = "%"
     layout["yaxis"]["tickformat"] = ".1f"
+    fig.update_layout(**layout)
+    return fig
+
+# ── LTV (net) Chart ────────────────────────────────────────────────────────────
+def ltv_net_figure(df):
+    if df.empty:
+        return _empty_figure("No LTV (net) data for this period")
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df["month"], y=df["ltv_net"],
+        mode="lines+markers",
+        line=dict(color="#A855F7", width=2.5),
+        marker=dict(size=4),
+        fill="tozeroy",
+        fillcolor="rgba(168,85,247,0.1)",
+        name="LTV (net)",
+        hovertemplate="<b>%{x|%b %Y}</b><br>LTV (net): $%{y:.2f}<extra></extra>",
+    ))
+
+    layout = dict(CHART_LAYOUT)
+    layout["yaxis"] = dict(CHART_LAYOUT["yaxis"])
+    layout["yaxis"]["tickprefix"] = "$"
     fig.update_layout(**layout)
     return fig
 
@@ -423,3 +459,6 @@ def granularity_control(ctrl_id, value="Day"):
         inputClassName="granularity-input",
         labelClassName="granularity-label",
     )
+
+
+

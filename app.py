@@ -12,16 +12,16 @@ import dash_bootstrap_components as dbc
 from data import (
     get_default_dates, get_country_options, get_platform_options,
     load_kpi_data, get_proceeds_trend,
-    get_arpu_daily, get_arpu_by_platform,
+    get_arpu_daily, get_conversion_rate_data,
     get_monthly_churn, get_cohort_ltv_data,
     get_roas_data, get_cac_data,
-    get_cac_ltv_thresholds,
+    get_cac_ltv_thresholds, get_ltv_net_data,
 )
 from components import (
     kpi_card, chart_card, granularity_control, drilldown_control,
-    proceeds_figure, arpu_line_figure, arpu_platform_figure,
+    proceeds_figure, arpu_line_figure, conversion_rate_figure,
     churn_figure, ltv_cohort_figure, roas_figure, cac_figure,
-    cac_ltv_threshold_figure,
+    cac_ltv_threshold_figure, ltv_net_figure,
     fmt_currency, fmt_count,
 )
 
@@ -151,7 +151,7 @@ LTV_COUNTRY_OPTIONS = [
 ]
 
 # ── Layout ────────────────────────────────────────────────────────────────────
-def layout():
+def home_layout():
     return html.Div(
         className="app-shell",
         children=[
@@ -163,7 +163,7 @@ def layout():
             # =====================================================================
             dcc.Store(id="store-dates",
                       data={"start": str(_default_start), "end": str(_default_end)}),
-            dcc.Store(id="store-granularity", data={"proceeds": "Day", "arpu": "Day"}),
+            dcc.Store(id="store-granularity", data={"proceeds": "Day", "arpu": "Day", "conversion": "Day"}),
 
             # Auto-refresh every 5 min
             dcc.Interval(id="interval", interval=300_000, n_intervals=0),
@@ -263,8 +263,9 @@ def layout():
                             controls=[drilldown_control("gran-arpu", "Day")],
                         ),
                         chart_card(
-                            title="ARPU by Platform",
-                            graph_id="chart-arpu-platform",
+                            title="Installs to Paid Conversion Rate",
+                            graph_id="chart-conversion",
+                            controls=[drilldown_control("gran-conversion", "Day")],
                         ),
                     ]),
 
@@ -272,7 +273,7 @@ def layout():
 
                     # ── Customer Metrics ──
                     html.Div("Customer Metrics", className="section-label"),
-                    html.Div(className="chart-row", children=[
+                    html.Div(className="chart-row-3", children=[
                         chart_card(
                             title="Monthly Churn Rate",
                             graph_id="chart-churn",
@@ -280,6 +281,10 @@ def layout():
                         chart_card(
                             title="Customer Acquisition Cost (CAC)",
                             graph_id="chart-cac",
+                        ),
+                        chart_card(
+                            title="LTV (Net)",
+                            graph_id="chart-ltv-net",
                         ),
                     ]),
 
@@ -342,7 +347,57 @@ def layout():
     )
 
 
-dash_app.layout = layout
+def facebook_layout():
+    return html.Div(
+        className="facebook-shell",
+        children=[
+            html.H1("Coming Soon", className="coming-soon-title"),
+            html.P("page under development", className="coming-soon-subtitle")
+        ]
+    )
+
+def main_layout():
+    return html.Div(
+        className="app-container",
+        children=[
+            dcc.Location(id="url", refresh=False),
+            html.Nav(
+                className="sidebar",
+                children=[
+                    dcc.Link(
+                        html.Div(
+                            html.Img(src="/assets/home-icon.svg", style={"width": "24px", "height": "24px", "filter": "invert(1)"}),
+                            className="nav-icon"
+                        ),
+                        href="/",
+                        className="nav-link",
+                        title="Home"
+                    ),
+                    dcc.Link(
+                        html.Div(
+                            html.Img(src="/assets/fb-icon.svg", style={"width": "24px", "height": "24px", "filter": "invert(1)"}),
+                            className="nav-icon"
+                        ),
+                        href="/facebook",
+                        className="nav-link",
+                        title="Facebook"
+                    )
+                ]
+            ),
+            html.Div(id="page-content", className="page-content-wrapper")
+        ]
+    )
+
+dash_app.layout = main_layout
+
+@dash_app.callback(
+    Output("page-content", "children"),
+    Input("url", "pathname")
+)
+def display_page(pathname):
+    if pathname == "/facebook":
+        return facebook_layout()
+    return home_layout()
 
 # =============================================================================
 # ── Callback 1: Populate Dropdowns ──
@@ -435,37 +490,31 @@ def update_proceeds(start, end, country, platform, gran_data, _):
 
 
 # =============================================================================
-# ── Callback 4: ARPU Line + Platform Bar Charts ──
-# Updates the two ARPU (Average Revenue Per User) charts.
-# Note: These metrics are global ("Total" country only) by design, so they 
-# intentionally ignore the Country and Platform dropdowns.
+# ── Callback 4: ARPU Line Chart ──
+# Updates the ARPU (Average Revenue Per User) chart.
 # =============================================================================
 @dash_app.callback(
-    Output("chart-arpu-line",     "figure"),
-    Output("chart-arpu-platform", "figure"),
+    Output("chart-arpu-line", "figure"),
     Input("filter-dates",      "start_date"),
     Input("filter-dates",      "end_date"),
+    Input("filter-country",    "value"),
     Input("filter-platform",   "value"),
     Input("store-granularity", "data"),
     Input("interval",          "n_intervals"),
     prevent_initial_call=False,
 )
-def update_arpu(start, end, platform, gran_data, _):
+def update_arpu(start, end, country, platform, gran_data, _):
     if not start or not end:
         start, end = str(_default_start), str(_default_end)
     gran = gran_data.get("arpu", "Day") if gran_data else "Day"
     try:
-        df_daily    = get_arpu_daily(start, end)
-        df_platform = get_arpu_by_platform(start, end)
-        return (
-            arpu_line_figure(df_daily, gran),
-            arpu_platform_figure(df_platform),
-        )
+        df_daily    = get_arpu_daily(start, end, country, platform)
+        return arpu_line_figure(df_daily, gran)
     except Exception as e:
         print(f"[app] update_arpu: {e}")
         from components import _empty_figure
         empty = _empty_figure(f"Error: {e}")
-        return empty, empty
+        return empty
 
 
 # =============================================================================
@@ -477,19 +526,22 @@ def update_arpu(start, end, platform, gran_data, _):
     Output("store-granularity",   "data"),
     Output("gran-proceeds-level", "children"),   # ← new: update level label
     Output("gran-arpu-level",     "children"),   # ← new: update level label
+    Output("gran-conversion-level", "children"),
     Input("gran-proceeds-up",     "n_clicks"),
     Input("gran-proceeds-down",   "n_clicks"),
     Input("gran-arpu-up",         "n_clicks"),
     Input("gran-arpu-down",       "n_clicks"),
+    Input("gran-conversion-up",   "n_clicks"),
+    Input("gran-conversion-down", "n_clicks"),
     State("store-granularity",    "data"),
     prevent_initial_call=True,
 )
-def handle_drilldown(proc_up, proc_down, arpu_up, arpu_down, current_gran):
+def handle_drilldown(proc_up, proc_down, arpu_up, arpu_down, conv_up, conv_down, current_gran):
     ctx = callback_context
-    gran = (current_gran or {"proceeds": "Day", "arpu": "Day"}).copy()
+    gran = (current_gran or {"proceeds": "Day", "arpu": "Day", "conversion": "Day"}).copy()
 
     if not ctx.triggered:
-        return gran, gran.get("proceeds", "Day"), gran.get("arpu", "Day")
+        return gran, gran.get("proceeds", "Day"), gran.get("arpu", "Day"), gran.get("conversion", "Day")
 
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
     # levels ordered coarse→fine: Year > Month > Day
@@ -514,7 +566,43 @@ def handle_drilldown(proc_up, proc_down, arpu_up, arpu_down, current_gran):
         if idx > 0:
             gran["arpu"] = levels[idx - 1]
 
-    return gran, gran.get("proceeds", "Day"), gran.get("arpu", "Day")
+    elif button_id == "gran-conversion-up":
+        idx = levels.index(gran.get("conversion", "Day"))
+        if idx < len(levels) - 1:
+            gran["conversion"] = levels[idx + 1]
+    elif button_id == "gran-conversion-down":
+        idx = levels.index(gran.get("conversion", "Day"))
+        if idx > 0:
+            gran["conversion"] = levels[idx - 1]
+
+    return gran, gran.get("proceeds", "Day"), gran.get("arpu", "Day"), gran.get("conversion", "Day")
+
+# =============================================================================
+# ── Callback 5.5: Conversion Rate Chart ──
+# Updates the Conversion Rate chart.
+# =============================================================================
+@dash_app.callback(
+    Output("chart-conversion", "figure"),
+    Input("filter-dates",      "start_date"),
+    Input("filter-dates",      "end_date"),
+    Input("filter-country",    "value"),
+    Input("filter-platform",   "value"),
+    Input("store-granularity", "data"),
+    Input("interval",          "n_intervals"),
+    prevent_initial_call=False,
+)
+def update_conversion(start, end, country, platform, gran_data, _):
+    if not start or not end:
+        start, end = str(_default_start), str(_default_end)
+    gran = gran_data.get("conversion", "Day") if gran_data else "Day"
+    try:
+        df = get_conversion_rate_data(start, end, country, platform)
+        return conversion_rate_figure(df, gran)
+    except Exception as e:
+        print(f"[app] update_conversion: {e}")
+        from components import _empty_figure
+        return _empty_figure(f"Error: {e}")
+
 
 
 # =============================================================================
@@ -525,6 +613,7 @@ def handle_drilldown(proc_up, proc_down, arpu_up, arpu_down, current_gran):
 @dash_app.callback(
     Output("chart-churn",   "figure"),
     Output("chart-cac",     "figure"),
+    Output("chart-ltv-net", "figure"),
     Output("chart-roas",    "figure"),
     Output("chart-cac-ltv", "figure"),
     Input("filter-dates",    "start_date"),
@@ -553,6 +642,12 @@ def update_customer_charts(start, end, country, platform, _):
         cac_df = None
 
     try:
+        ltv_net_df = get_ltv_net_data(start, end, country, platform)
+    except Exception as e:
+        print(f"[app] ltv_net: {e}")
+        ltv_net_df = None
+
+    try:
         roas_df = get_roas_data(start, end, country, platform)
     except Exception as e:
         print(f"[app] roas: {e}")
@@ -568,10 +663,11 @@ def update_customer_charts(start, end, country, platform, _):
 
     churn_fig   = churn_figure(churn_df) if churn_df is not None else _empty_figure("Churn error")
     cac_fig_out = cac_figure(cac_df)     if cac_df is not None   else _empty_figure("CAC error")
+    ltv_net_fig = ltv_net_figure(ltv_net_df) if ltv_net_df is not None else _empty_figure("LTV (net) error")
     roas_fig    = roas_figure(roas_df)   if roas_df is not None  else _empty_figure("ROAS error")
     clt_fig     = cac_ltv_threshold_figure(cac_ltv_df) if cac_ltv_df is not None else _empty_figure("Threshold error")
 
-    return churn_fig, cac_fig_out, roas_fig, clt_fig
+    return churn_fig, cac_fig_out, ltv_net_fig, roas_fig, clt_fig
 
 
 # =============================================================================
@@ -600,7 +696,6 @@ def update_ltv(start, end, ltv_country, platform, _):
         print(f"[app] update_ltv: {e}")
         from components import _empty_figure
         return _empty_figure(f"Error: {e}")
-
 
 # ── Run ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":

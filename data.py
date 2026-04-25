@@ -7,10 +7,24 @@ import os
 import time
 import hashlib
 import json
+import threading
+import pickle
 import pandas as pd
 from google.cloud import bigquery
 from google.oauth2 import service_account
 from datetime import date, timedelta
+
+# Try to initialize Redis for Vercel serverless persistence
+try:
+    import redis
+    # Vercel KV provides KV_URL, Upstash provides UPSTASH_REDIS_REST_URL or REDIS_URL
+    redis_url = os.getenv("KV_URL") or os.getenv("REDIS_URL")
+    if redis_url:
+        REDIS_CLIENT = redis.Redis.from_url(redis_url)
+    else:
+        REDIS_CLIENT = None
+except ImportError:
+    REDIS_CLIENT = None
 
 # ── Config ────────────────────────────────────────────────────────────────────
 PROJECT_ID   = "vinita-388203"
@@ -26,7 +40,12 @@ KEY_PATH     = os.path.join(os.path.dirname(__file__), "vinita-key.json")
 # If you change a dropdown before 10 minutes, it uses this memory instead of querying again.
 # =============================================================================
 CACHE: dict = {}
-CACHE_TTL   = 600  # 10 minutes
+CACHE_TTL   = 600  # 10 minutes (600 seconds)
+
+# Threading locks to prevent cache stampedes (i.e. multiple callbacks requesting the same data simultaneously)
+CACHE_LOCK = threading.Lock()
+KEY_LOCKS = {}
+KEY_LOCKS_LOCK = threading.Lock()
 
 COUNTRY_MAP = {
     "US": "United States",
@@ -66,14 +85,73 @@ def _cache_key(tag: str, params: dict) -> str:
     return hashlib.md5(raw.encode()).hexdigest()
 
 def _get_cached(key: str, query_fn):
+    """
+    Retrieves data from the cache. If the data is missing or expired, it runs the query_fn.
+    Uses locks to prevent multiple threads from querying BigQuery for the same data simultaneously.
+    If REDIS is configured (Vercel KV), it uses Redis to share cache across serverless instances.
+    """
     now = time.time()
-    if key in CACHE:
-        value, ts = CACHE[key]
-        if now - ts < CACHE_TTL:
-            return value
-    result = query_fn()
-    CACHE[key] = (result, now)
-    return result
+    
+    # 0. Try Redis first (Shared across Vercel serverless instances)
+    if REDIS_CLIENT:
+        try:
+            cached_data = REDIS_CLIENT.get(key)
+            if cached_data:
+                return pickle.loads(cached_data)
+        except Exception as e:
+            print(f"[Cache] Redis GET error: {e}")
+            
+    # 1. Fast path: check if valid data exists in local memory (Fallback)
+    with CACHE_LOCK:
+        if key in CACHE:
+            value, ts = CACHE[key]
+            if now - ts < CACHE_TTL:
+                return value
+
+    # 2. Get or create a lock specific to this query key
+    with KEY_LOCKS_LOCK:
+        if key not in KEY_LOCKS:
+            KEY_LOCKS[key] = threading.Lock()
+        lock = KEY_LOCKS[key]
+
+    # 3. Acquire the lock and query
+    with lock:
+        # Check local cache one more time in case another thread just finished querying
+        now = time.time()
+        with CACHE_LOCK:
+            if key in CACHE:
+                value, ts = CACHE[key]
+                if now - ts < CACHE_TTL:
+                    return value
+        
+        # Check Redis one more time
+        if REDIS_CLIENT:
+            try:
+                cached_data = REDIS_CLIENT.get(key)
+                if cached_data:
+                    result = pickle.loads(cached_data)
+                    # Sync local memory cache with Redis
+                    with CACHE_LOCK:
+                        CACHE[key] = (result, now)
+                    return result
+            except Exception:
+                pass
+        
+        # 4. Actually run the expensive query
+        result = query_fn()
+        
+        # 5. Save back to local cache
+        with CACHE_LOCK:
+            CACHE[key] = (result, time.time())
+            
+        # 6. Save back to Redis (Vercel)
+        if REDIS_CLIENT:
+            try:
+                REDIS_CLIENT.setex(key, CACHE_TTL, pickle.dumps(result))
+            except Exception as e:
+                print(f"[Cache] Redis SET error: {e}")
+            
+        return result
 
 # ── Smart default date range ──────────────────────────────────────────────────
 def get_default_dates():
@@ -83,10 +161,13 @@ def get_default_dates():
         df = client.query(q).to_dataframe()
         mx = df["mx"].iloc[0]
         if mx is not None:
-            return mx - timedelta(days=89), mx
-    except Exception as e:
-        print(f"[data] get_default_dates: {e}")
-    return date.today() - timedelta(days=89), date.today()
+            end_d = pd.to_datetime(mx).date()
+            start_d = date(2026, 1, 1)  # Default start date set to Jan 1, 2026
+            return start_d, end_d
+    except:
+        pass
+    end_d = date.today()
+    return date(2026, 1, 1), end_d
 
 def get_country_options() -> list[dict]:
     # Hardcoded to avoid BQ query, as requested by user
@@ -144,7 +225,8 @@ def _get_base_final_df(start_date, end_date) -> pd.DataFrame:
                 SUM(spend) AS spend,
                 SUM(active_subscriptions) AS active_subscriptions,
                 SUM(churned_active) AS churned_active,
-                SUM(total_new_paid_subscriptions) AS total_new_paid_subscriptions
+                SUM(total_new_paid_subscriptions) AS total_new_paid_subscriptions,
+                SUM(installs) AS installs
             FROM `{TABLE}`
             WHERE CAST(date AS DATE) BETWEEN '{extended_start}' AND '{end_date}'
               AND rc_country != 'Total'
@@ -153,7 +235,7 @@ def _get_base_final_df(start_date, end_date) -> pd.DataFrame:
         try:
             df = client.query(q).to_dataframe()
             df['date'] = pd.to_datetime(df['date'])
-            for col in ['gross_revenue', 'proceeds', 'spend', 'active_subscriptions', 'churned_active', 'total_new_paid_subscriptions']:
+            for col in ['gross_revenue', 'proceeds', 'spend', 'active_subscriptions', 'churned_active', 'total_new_paid_subscriptions', 'installs']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             return df
         except Exception as e:
@@ -307,6 +389,40 @@ def get_monthly_churn(start_date, end_date, country=None, platform=None) -> pd.D
         
     return pd.DataFrame(monthly).sort_values('month')
 
+def get_ltv_net_data(start_date, end_date, country=None, platform=None) -> pd.DataFrame:
+    df = _get_base_final_df(start_date, end_date)
+    if df.empty: return pd.DataFrame(columns=['month', 'ltv_net'])
+    
+    s_dt, e_dt = pd.to_datetime(start_date), pd.to_datetime(end_date)
+    df = df[(df['date'] >= s_dt) & (df['date'] <= e_dt)]
+    df_f = _filter_df(df, 'rc_country', 'rc_platform', country, platform, map_country=True)
+    
+    if df_f.empty: return pd.DataFrame(columns=['month', 'ltv_net'])
+
+    df_f['month'] = df_f['date'].dt.to_period('M')
+    
+    # Group by exact date first to sum across countries/platforms for that day
+    daily_agg = df_f.groupby(['date', 'month'], as_index=False)[['active_subscriptions', 'churned_active', 'proceeds']].sum()
+    
+    monthly = []
+    for m, m_df in daily_agg.groupby('month'):
+        m_df = m_df.sort_values('date')
+        end_subs = m_df.iloc[-1]['active_subscriptions']
+        tot_churn = m_df['churned_active'].sum()
+        monthly_proceeds = m_df['proceeds'].sum()
+        
+        churn_rate_decimal = (tot_churn / end_subs) if end_subs else 0
+        arpu_net = (monthly_proceeds / end_subs) if end_subs else 0
+        
+        ltv_net = (arpu_net / churn_rate_decimal) if churn_rate_decimal > 0 else 0
+        
+        monthly.append({
+            'month': m.to_timestamp(),
+            'ltv_net': ltv_net
+        })
+        
+    return pd.DataFrame(monthly).sort_values('month')
+
 def get_cac_data(start_date, end_date, country=None, platform=None) -> pd.DataFrame:
     df = _get_base_final_df(start_date, end_date)
     if df.empty: return pd.DataFrame(columns=['date', 'total_spend', 'total_new_paid_subscriptions', 'cac'])
@@ -324,6 +440,38 @@ def get_cac_data(start_date, end_date, country=None, platform=None) -> pd.DataFr
     # Meaningful CAC
     res = res[res['cac'] >= 0].copy()
     return res
+
+def get_conversion_rate_data(start_date, end_date, country=None, platform=None) -> pd.DataFrame:
+    # Installs are only tracked globally (rc_country/rc_platform are NULL),
+    # so we must run a dedicated query ignoring those filters to get correct numbers.
+    def _query():
+        client = get_bq_client()
+        q = f"""
+            SELECT
+                CAST(date AS DATE) AS date,
+                SUM(installs) AS installs,
+                SUM(total_new_paid_subscriptions) AS total_new_paid_subscriptions
+            FROM `{TABLE}`
+            WHERE CAST(date AS DATE) BETWEEN '{start_date}' AND '{end_date}'
+            GROUP BY date
+            ORDER BY date
+        """
+        try:
+            df = client.query(q).to_dataframe()
+            df['date'] = pd.to_datetime(df['date'])
+            for col in ['installs', 'total_new_paid_subscriptions']:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            
+            df['conversion_rate'] = df.apply(
+                lambda x: (x['total_new_paid_subscriptions'] / x['installs'] * 100) if x['installs'] > 0 else 0, 
+                axis=1
+            )
+            return df
+        except Exception as e:
+            print(f"[data] get_conversion_rate_data ERROR: {e}")
+            return pd.DataFrame(columns=['date', 'installs', 'total_new_paid_subscriptions', 'conversion_rate'])
+
+    return _get_cached(_cache_key('conversion_rate', {'start': start_date, 'end': end_date}), _query)
 
 def get_cohort_ltv_data(start_date, end_date, country=None, platform=None) -> pd.DataFrame:
     df = _get_base_cohort_df(start_date, end_date)
@@ -386,9 +534,19 @@ def get_cac_ltv_thresholds(start_date, end_date, country=None, platform=None) ->
     return merged.sort_values('date')
 
 # ── ARPU Queries (Unchanged as they are very specific to Total) ───────────────
-def get_arpu_daily(start_date, end_date) -> pd.DataFrame:
+def get_arpu_daily(start_date, end_date, country=None, platform=None) -> pd.DataFrame:
     def _query():
         client = get_bq_client()
+        
+        c_filter = "country = 'Total'"
+        if country and country not in ("All", "Total"):
+            c_name = COUNTRY_MAP.get(country, country)
+            c_filter = f"country = '{c_name}'"
+            
+        p_filter = ""
+        if platform and platform not in ("All", ""):
+            p_filter = f" AND platform = '{platform}'"
+
         q = f"""
             SELECT
                 DATE(date)      AS date,
@@ -397,7 +555,7 @@ def get_arpu_daily(start_date, end_date) -> pd.DataFrame:
                 MAX(total_active_subscriptions) AS active_subs,
                 SAFE_DIVIDE(SUM(proceeds), NULLIF(MAX(total_active_subscriptions), 0)) AS arpu
             FROM `{ARPU_TABLE}`
-            WHERE country = 'Total'
+            WHERE {c_filter}{p_filter}
               AND DATE(date) BETWEEN '{start_date}' AND '{end_date}'
             GROUP BY date, platform
             ORDER BY date, platform
@@ -410,7 +568,8 @@ def get_arpu_daily(start_date, end_date) -> pd.DataFrame:
             return df
         except:
             return pd.DataFrame(columns=["date", "platform", "proceeds", "active_subs", "arpu"])
-    return _get_cached(_cache_key('arpu_daily', {'start': start_date, 'end': end_date}), _query)
+    return _get_cached(_cache_key('arpu_daily', {'start': start_date, 'end': end_date, 'c': country, 'p': platform}), _query)
+
 
 def get_arpu_by_platform(start_date, end_date) -> pd.DataFrame:
     def _query():
