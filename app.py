@@ -16,7 +16,7 @@ from data import (
     get_monthly_churn, get_cohort_ltv_data,
     get_roas_data, get_cac_data,
     get_cac_ltv_thresholds, get_ltv_net_data,
-    get_true_roas_data,
+    get_true_roas_data, get_facebook_kpi_data, get_meta_roas_data
 )
 from components import (
     kpi_card, chart_card, granularity_control, drilldown_control,
@@ -165,8 +165,6 @@ def home_layout():
             dcc.Store(id="store-dates",
                       data={"start": str(_default_start), "end": str(_default_end)}),
             dcc.Store(id="store-granularity", data={"proceeds": "Day", "arpu": "Day", "conversion": "Day"}),
-            dcc.Store(id="store-ios-fee", data={"fee": 15}),
-            dcc.Store(id="store-roas-drill", data={"level": "country", "filter_country": None, "filter_campaign": None}),
 
             # Auto-refresh every 5 min
             dcc.Interval(id="interval", interval=300_000, n_intervals=0),
@@ -246,37 +244,6 @@ def home_layout():
                     # These cards show the high-level summary (Active Subs, Revenue, Proceeds, Spend).
                     html.Div("Key Metrics", className="section-label"),
                     html.Div(id="kpi-grid", className="kpi-grid"),
-
-                    html.Div(className="divider"),
-
-                    # ── True ROAS ──
-                    html.Div(
-                        className="section-label",
-                        children=[
-                            html.Span("True ROAS "),
-                            html.Span(
-                                "ⓘ",
-                                title="Data filtered to US, CA, GB, AU.\nFormula: (Adjust All Revenue / 2) * Platform Fee / Spend.\nExcludes campaigns with 0 spend.",
-                                style={"cursor": "help", "fontSize": "13px", "color": "#A855F7"}
-                            )
-                        ]
-                    ),
-                    html.Div(className="true-roas-header", children=[
-                        ios_fee_toggle("toggle-ios-fee", 15),
-                        html.Div(id="roas-summary", className="roas-summary"),
-                    ]),
-                    chart_card(
-                        title="True ROAS Breakdown",
-                        graph_id="chart-true-roas",
-                        height=550,
-                        controls=[
-                            html.Div(className="drill-buttons", children=[
-                                html.Button("Country", id="drill-country", className="drill-btn drill-btn--active", n_clicks=0),
-                                html.Button("Campaign", id="drill-campaign", className="drill-btn", n_clicks=0),
-                                html.Button("Ad", id="drill-ad", className="drill-btn", n_clicks=0),
-                            ])
-                        ]
-                    ),
 
                     html.Div(className="divider"),
 
@@ -382,11 +349,102 @@ def home_layout():
 
 
 def facebook_layout():
+    fb_start = date(2025, 1, 1)
+    fb_end = date(2025, 12, 31)
+    
     return html.Div(
-        className="facebook-shell",
+        className="app-shell",
         children=[
-            html.H1("Coming Soon", className="coming-soon-title"),
-            html.P("page under development", className="coming-soon-subtitle")
+            dcc.Store(id="store-ios-fee", data={"fee": 15}),
+            dcc.Store(id="store-roas-drill", data={"level": "country", "filter_country": None, "filter_campaign": None}),
+
+            # Auto-refresh every 5 min
+            dcc.Interval(id="fb-interval", interval=300_000, n_intervals=0),
+
+            html.Header(className="app-header", children=[
+                html.Div(className="header-brand", children=[
+                    html.Div(html.Img(src="/assets/fb-icon.svg", style={"width": "32px", "height": "32px", "filter": "invert(1)"}), className="header-logo"),
+                    html.Div([
+                        html.Div("Facebook Analytics", className="header-title"),
+                        html.Div("Performance & True ROAS", className="header-sub"),
+                    ]),
+                ]),
+
+                html.Div(className="header-controls", children=[
+                    dcc.DatePickerRange(
+                        id="fb-filter-dates",
+                        min_date_allowed=date(2020, 1, 1),
+                        max_date_allowed=date.today(),
+                        initial_visible_month=fb_end,
+                        start_date=fb_start,
+                        end_date=fb_end,
+                        display_format="MMM D, YYYY",
+                        style={"fontSize": "12.5px"},
+                    ),
+                ]),
+            ]),
+
+            html.Main(className="main-content", children=[
+                dcc.Loading(type="default", color="#4B5563", children=[
+                    html.Div("Facebook KPIs", className="section-label"),
+                    html.Div(id="fb-kpi-grid", className="kpi-grid"),
+
+                    html.Div(className="divider"),
+
+                    html.Div(
+                        className="section-label",
+                        children=[
+                            html.Span("ROAS Breakdown "),
+                            html.Span(
+                                "ⓘ",
+                                title="Toggle between True ROAS (Adjust Revenue / 2 * Platform Fee) and Meta-Reported (Purchase). Excludes campaigns with 0 spend.",
+                                style={"cursor": "help", "fontSize": "13px", "color": "#A855F7"}
+                            )
+                        ]
+                    ),
+                    html.Div(className="true-roas-header", children=[
+                        dcc.RadioItems(
+                            id="toggle-roas-type",
+                            options=[
+                                {"label": " True ROAS", "value": "true"},
+                                {"label": " Meta-Reported", "value": "meta"},
+                            ],
+                            value="true",
+                            inline=True,
+                            className="ios-fee-radio",
+                            inputClassName="ios-fee-input",
+                            labelClassName="ios-fee-radio-label",
+                        ),
+                        ios_fee_toggle("toggle-ios-fee", 15),
+                        html.Div(id="roas-summary", className="roas-summary"),
+                    ]),
+                    chart_card(
+                        title="ROAS by Campaign & Ad",
+                        graph_id="chart-true-roas",
+                        height=550,
+                        controls=[
+                            html.Div(className="drill-buttons", children=[
+                                html.Button("Country", id="drill-country", className="drill-btn drill-btn--active", n_clicks=0),
+                                html.Button("Campaign", id="drill-campaign", className="drill-btn", n_clicks=0),
+                                html.Button("Ad", id="drill-ad", className="drill-btn", n_clicks=0),
+                            ])
+                        ]
+                    ),
+                ])
+            ]),
+            
+            html.Footer(
+                "Powered by Razorlytics",
+                className="app-footer",
+                style={
+                    "textAlign": "center",
+                    "padding": "24px 0",
+                    "color": "#6B7280",
+                    "fontSize": "13px",
+                    "fontFamily": "Inter, sans-serif",
+                    "marginTop": "20px"
+                }
+            )
         ]
     )
 
@@ -797,16 +855,15 @@ def handle_roas_drilldown(c_clicks, camp_clicks, ad_clicks, click_data, current_
 @dash_app.callback(
     Output("chart-true-roas", "figure"),
     Output("roas-summary", "children"),
-    Input("filter-dates",      "start_date"),
-    Input("filter-dates",      "end_date"),
-    Input("filter-country",    "value"),
-    Input("filter-platform",   "value"),
+    Input("fb-filter-dates",   "start_date"),
+    Input("fb-filter-dates",   "end_date"),
     Input("store-ios-fee",     "data"),
     Input("store-roas-drill",  "data"),
-    Input("interval",          "n_intervals"),
+    Input("toggle-roas-type",  "value"),
+    Input("fb-interval",       "n_intervals"),
     prevent_initial_call=False,
 )
-def update_true_roas(start, end, country, platform, ios_store, drill_store, _):
+def update_true_roas(start, end, ios_store, drill_store, roas_type, _):
     if not start or not end:
         start, end = str(_default_start), str(_default_end)
         
@@ -819,7 +876,7 @@ def update_true_roas(start, end, country, platform, ios_store, drill_store, _):
     from components import _empty_figure
     
     try:
-        df = get_true_roas_data(start, end, country, platform, fee)
+        df = get_true_roas_data(start, end, None, None, fee, roas_type)
         
         if not df.empty:
             # Apply interactive drilldown filters
@@ -832,7 +889,7 @@ def update_true_roas(start, end, country, platform, ios_store, drill_store, _):
         # Summary
         if df.empty:
             summary = html.Span("No ROAS data")
-            fig = true_roas_figure(df, drill_level=level)
+            fig = true_roas_figure(df, drill_level=level, roas_type=roas_type)
         else:
             tot_net = df['net_proceeds'].sum()
             tot_spend = df['spend'].sum()
@@ -847,18 +904,53 @@ def update_true_roas(start, end, country, platform, ios_store, drill_store, _):
             elif filter_country:
                 breadcrumb = f" ({filter_country})"
 
+            net_lbl = "Purchase" if roas_type == "meta" else "Net"
+
             summary = html.Div([
                 html.Span("Avg ROAS: ", className="roas-lbl"),
                 html.Span(f"{avg_roas:.2f}x", className=cls),
-                html.Span(f" (Net: ${tot_net:,.0f} | Spend: ${tot_spend:,.0f}){breadcrumb}", className="roas-sublbl")
+                html.Span(f" ({net_lbl}: ${tot_net:,.0f} | Spend: ${tot_spend:,.0f}){breadcrumb}", className="roas-sublbl")
             ])
             
-            fig = true_roas_figure(df, drill_level=level)
+            fig = true_roas_figure(df, drill_level=level, roas_type=roas_type)
         
         return fig, summary
     except Exception as e:
         print(f"[app] update_true_roas: {e}")
         return _empty_figure(f"Error: {e}"), html.Span("Error loading ROAS")
+
+# =============================================================================
+# ── Callback 10: Facebook KPIs ──
+# =============================================================================
+@dash_app.callback(
+    Output("fb-kpi-grid", "children"),
+    Input("fb-filter-dates", "start_date"),
+    Input("fb-filter-dates", "end_date"),
+    Input("fb-interval", "n_intervals"),
+    prevent_initial_call=False,
+)
+def update_fb_kpis(start, end, _):
+    if not start or not end:
+        start, end = "2025-01-01", "2025-12-31"
+
+    try:
+        data = get_facebook_kpi_data(start, end)
+    except Exception as e:
+        print(f"[app] update_fb_kpis: {e}")
+        data = {"spend": 0, "ctr": 0, "cpm": 0, "cost_per_reach": 0}
+
+    return [
+        kpi_card("fb-sp", "Spend", fmt_currency(data.get("spend", 0)),
+                 subtitle=f"{start} → {end}", icon="", featured=True),
+        kpi_card("fb-ctr", "CTR", f"{data.get('ctr', 0):.2f}%",
+                 subtitle=f"{start} → {end}", icon="", featured=True),
+        kpi_card("fb-cpm", "CPM", fmt_currency(data.get("cpm", 0)),
+                 subtitle=f"{start} → {end}", icon="", featured=True),
+        kpi_card("fb-cpr", "Cost Per Reach", f"${data.get('cost_per_reach', 0):.2f}",
+                 subtitle=f"{start} → {end}", icon="", featured=True),
+    ]
+
+# (Removed Meta ROAS Callback since it's merged into True ROAS component)
 
 # ── Run ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":

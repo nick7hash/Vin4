@@ -533,8 +533,8 @@ def get_cac_ltv_thresholds(start_date, end_date, country=None, platform=None) ->
     
     return merged.sort_values('date')
 
-# ── TRUE ROAS ──────────────────────────────────────────────────────────────────
-def get_true_roas_data(start_date, end_date, country=None, platform=None, ios_fee_pct=15) -> pd.DataFrame:
+# ── TRUE ROAS / META ROAS ───────────────────────────────────────────────────────
+def get_true_roas_data(start_date, end_date, country=None, platform=None, ios_fee_pct=15, roas_type='true') -> pd.DataFrame:
     """
     Fetches True ROAS data broken down by Country, Campaign, and Ad.
     
@@ -558,6 +558,7 @@ def get_true_roas_data(start_date, end_date, country=None, platform=None, ios_fe
                 campaign_name,
                 ad_name,
                 SUM(all_revenue) AS total_all_revenue,
+                SUM(purchase) AS total_purchase,
                 SUM(spend) AS total_spend
             FROM `{TABLE}`
             WHERE CAST(date AS DATE) BETWEEN '{start_date}' AND '{end_date}'
@@ -566,12 +567,12 @@ def get_true_roas_data(start_date, end_date, country=None, platform=None, ios_fe
         """
         try:
             df = client.query(q).to_dataframe()
-            for col in ['total_all_revenue', 'total_spend']:
+            for col in ['total_all_revenue', 'total_purchase', 'total_spend']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             return df
         except Exception as e:
             print(f"[data] get_true_roas_data ERROR: {e}")
-            return pd.DataFrame(columns=['country', 'platform', 'campaign_name', 'ad_name', 'total_all_revenue', 'total_spend'])
+            return pd.DataFrame(columns=['country', 'platform', 'campaign_name', 'ad_name', 'total_all_revenue', 'total_purchase', 'total_spend'])
 
     # Cache the raw query result (doesn't include the math so we can toggle iOS fee instantly)
     df = _get_cached(_cache_key('true_roas', {'start': start_date, 'end': end_date}), _query)
@@ -596,24 +597,28 @@ def get_true_roas_data(start_date, end_date, country=None, platform=None, ios_fe
         # Check against both the exact 2-letter code or the mapped full name, since Adjust format can vary
         df_f = df_f[(df_f['country'].str.upper() == country) | (df_f['country'].str.lower() == country.lower()) | (df_f['country'] == c_mapped)]
 
-    # 1. Halve the all_revenue
-    df_f['revenue_adj'] = df_f['total_all_revenue'] / 2.0
+    if roas_type == 'meta':
+        df_f['net_proceeds'] = df_f['total_purchase']
+    else:
+        # 1. Halve the all_revenue
+        df_f['revenue_adj'] = df_f['total_all_revenue'] / 2.0
 
-    # 2. Apply platform fees
-    ios_multiplier = 1.0 - (ios_fee_pct / 100.0)
-    
-    def apply_fee(row):
-        plat = str(row['platform']).lower()
-        if 'android' in plat:
-            return row['revenue_adj'] * 0.85
-        elif 'ios' in plat:
-            return row['revenue_adj'] * ios_multiplier
-        return row['revenue_adj'] * 0.85 # default fallback
+        # 2. Apply platform fees
+        ios_multiplier = 1.0 - (ios_fee_pct / 100.0)
         
-    df_f['net_proceeds'] = df_f.apply(apply_fee, axis=1)
+        def apply_fee(row):
+            plat = str(row['platform']).lower()
+            if 'android' in plat:
+                return row['revenue_adj'] * 0.85
+            elif 'ios' in plat:
+                return row['revenue_adj'] * ios_multiplier
+            return row['revenue_adj'] * 0.85 # default fallback
+            
+        df_f['net_proceeds'] = df_f.apply(apply_fee, axis=1)
+
     df_f['spend'] = df_f['total_spend']
     
-    # 3. Calculate True ROAS
+    # 3. Calculate ROAS
     df_f['roas'] = df_f.apply(lambda x: x['net_proceeds'] / x['spend'] if x['spend'] > 0 else 0, axis=1)
 
     return df_f[['country', 'platform', 'campaign_name', 'ad_name', 'net_proceeds', 'spend', 'roas']]
@@ -688,3 +693,79 @@ def get_arpu_by_platform(start_date, end_date) -> pd.DataFrame:
         except:
             return pd.DataFrame(columns=["platform", "total_proceeds", "avg_arpu"])
     return _get_cached(_cache_key('arpu_by_platform', {'start': start_date, 'end': end_date}), _query)
+
+# ── FACEBOOK ANALYTICS ────────────────────────────────────────────────────────
+def get_facebook_kpi_data(start_date, end_date) -> dict:
+    def _query():
+        client = get_bq_client()
+        q = f"""
+            SELECT
+                SUM(spend) AS spend,
+                SUM(clicks) AS clicks,
+                SUM(impressions) AS impressions,
+                SUM(reach) AS reach
+            FROM `{TABLE}`
+            WHERE CAST(date AS DATE) BETWEEN '{start_date}' AND '{end_date}'
+              AND adplatform = 'Facebook'
+        """
+        try:
+            df = client.query(q).to_dataframe()
+            for col in ['spend', 'clicks', 'impressions', 'reach']:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            return df
+        except Exception as e:
+            print(f"[data] get_facebook_kpi_data ERROR: {e}")
+            return pd.DataFrame(columns=['spend', 'clicks', 'impressions', 'reach'])
+            
+    df = _get_cached(_cache_key('facebook_kpi', {'start': start_date, 'end': end_date}), _query)
+    
+    if df.empty or len(df) == 0:
+        return {"spend": 0, "ctr": 0, "cpm": 0, "cost_per_reach": 0}
+        
+    row = df.iloc[0]
+    spend = float(row.get('spend', 0))
+    clicks = float(row.get('clicks', 0))
+    impressions = float(row.get('impressions', 0))
+    reach = float(row.get('reach', 0))
+    
+    ctr = (clicks / impressions * 100) if impressions > 0 else 0
+    cpm = (spend / impressions * 1000) if impressions > 0 else 0
+    cost_per_reach = (spend / reach) if reach > 0 else 0
+    
+    return {
+        "spend": spend,
+        "ctr": ctr,
+        "cpm": cpm,
+        "cost_per_reach": cost_per_reach
+    }
+
+def get_meta_roas_data(start_date, end_date) -> pd.DataFrame:
+    def _query():
+        client = get_bq_client()
+        q = f"""
+            SELECT
+                CAST(date AS DATE) AS date,
+                SUM(purchase) AS total_purchase,
+                SUM(spend) AS total_spend
+            FROM `{TABLE}`
+            WHERE CAST(date AS DATE) BETWEEN '{start_date}' AND '{end_date}'
+              AND adplatform = 'Facebook'
+            GROUP BY date
+            ORDER BY date
+        """
+        try:
+            df = client.query(q).to_dataframe()
+            df['date'] = pd.to_datetime(df['date'])
+            for col in ['total_purchase', 'total_spend']:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            
+            df['roas'] = df.apply(
+                lambda x: (x['total_purchase'] / x['total_spend']) if x['total_spend'] > 0 else 0, 
+                axis=1
+            )
+            return df
+        except Exception as e:
+            print(f"[data] get_meta_roas_data ERROR: {e}")
+            return pd.DataFrame(columns=['date', 'total_purchase', 'total_spend', 'roas'])
+
+    return _get_cached(_cache_key('meta_roas', {'start': start_date, 'end': end_date}), _query)

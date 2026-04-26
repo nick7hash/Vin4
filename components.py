@@ -16,11 +16,22 @@ CHART_LAYOUT = dict(
     plot_bgcolor="rgba(0,0,0,0)",
     font=dict(family="Inter, sans-serif", color="#9CA3AF", size=12),
     margin=dict(l=16, r=16, t=44, b=16),
-    hovermode="x unified",
-    xaxis=dict(gridcolor="#1F2937", linecolor="#1F2937", tickcolor="#4B5563",
-               tickfont=dict(color="#9CA3AF")),
-    yaxis=dict(gridcolor="#1F2937", linecolor="#1F2937", tickcolor="#4B5563",
-               tickfont=dict(color="#9CA3AF")),
+    # Use simple hover without a vertical spike line
+    hovermode="closest",
+    xaxis=dict(
+        gridcolor="#1F2937",
+        linecolor="#1F2937",
+        tickcolor="#4B5563",
+        tickfont=dict(color="#9CA3AF"),
+        showspikes=False,
+    ),
+    yaxis=dict(
+        gridcolor="#1F2937",
+        linecolor="#1F2937",
+        tickcolor="#4B5563",
+        tickfont=dict(color="#9CA3AF"),
+        showspikes=False,
+    ),
     legend=dict(bgcolor="rgba(17,24,39,0.85)", bordercolor="#1F2937",
                 borderwidth=1, font=dict(color="#E5E7EB")),
 )
@@ -483,10 +494,11 @@ def ios_fee_toggle(toggle_id="ios-fee-toggle", default_val=15):
     )
 
 # ── True ROAS Figure ──────────────────────────────────────────────────────────
-def true_roas_figure(df, drill_level="campaign"):
+def true_roas_figure(df, drill_level="campaign", roas_type="true"):
     """
     Bar chart for True ROAS broken down by Country, Campaign, or Ad.
     drill_level options: 'country', 'campaign', 'ad'
+    roas_type options: 'true', 'meta'
     """
     if df.empty:
         return _empty_figure("No True ROAS data available for these filters")
@@ -518,8 +530,13 @@ def true_roas_figure(df, drill_level="campaign"):
     if grouped.empty:
         return _empty_figure(f"No {drill_level} data with valid spend")
 
-    # Color logic: Green if >= 1, Red if < 1
-    colors = ['#10B981' if r >= 1 else '#EF4444' for r in grouped['roas']]
+    # Color logic: Green if >= 1, Red if < 1 for True ROAS. Always green for Meta ROAS.
+    if roas_type == 'meta':
+        colors = ['#10B981'] * len(grouped)
+        hover_proceeds_label = "Purchase"
+    else:
+        colors = ['#10B981' if r >= 1 else '#EF4444' for r in grouped['roas']]
+        hover_proceeds_label = "Net Proceeds"
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
@@ -534,7 +551,7 @@ def true_roas_figure(df, drill_level="campaign"):
         hovertemplate=(
             "<b>%{y}</b><br>"
             "ROAS: %{x:.2f}x<br>"
-            "Net Proceeds: $%{customdata[0]:,.2f}<br>"
+            f"{hover_proceeds_label}: $%{{customdata[0]:,.2f}}<br>"
             "Spend: $%{customdata[1]:,.2f}"
             "<extra></extra>"
         )
