@@ -533,6 +533,92 @@ def get_cac_ltv_thresholds(start_date, end_date, country=None, platform=None) ->
     
     return merged.sort_values('date')
 
+# ── TRUE ROAS ──────────────────────────────────────────────────────────────────
+def get_true_roas_data(start_date, end_date, country=None, platform=None, ios_fee_pct=15) -> pd.DataFrame:
+    """
+    Fetches True ROAS data broken down by Country, Campaign, and Ad.
+    
+    Data Source: mrt_final_vinita (Adjust data)
+    
+    Logic applied for True ROAS (as requested by user):
+    1. Filter for platform IN ('ios', 'android')
+    2. all_revenue is halved due to a known double-counting issue in Adjust data.
+    3. Net Proceeds are calculated based on the fee structure:
+       - Android: 15% fee (multiplier 0.85)
+       - iOS: Variable fee based on toggle (15% or 30%, multiplier 0.85 or 0.70)
+    4. ROAS = Net Proceeds / Spend
+    """
+    def _query():
+        client = get_bq_client()
+        # Fetching raw data from BigQuery, math is done in Pandas for fast toggle switching
+        q = f"""
+            SELECT
+                country,
+                platform,
+                campaign_name,
+                ad_name,
+                SUM(all_revenue) AS total_all_revenue,
+                SUM(spend) AS total_spend
+            FROM `{TABLE}`
+            WHERE CAST(date AS DATE) BETWEEN '{start_date}' AND '{end_date}'
+              AND LOWER(platform) IN ('ios', 'android')
+            GROUP BY country, platform, campaign_name, ad_name
+        """
+        try:
+            df = client.query(q).to_dataframe()
+            for col in ['total_all_revenue', 'total_spend']:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            return df
+        except Exception as e:
+            print(f"[data] get_true_roas_data ERROR: {e}")
+            return pd.DataFrame(columns=['country', 'platform', 'campaign_name', 'ad_name', 'total_all_revenue', 'total_spend'])
+
+    # Cache the raw query result (doesn't include the math so we can toggle iOS fee instantly)
+    df = _get_cached(_cache_key('true_roas', {'start': start_date, 'end': end_date}), _query)
+
+    if df.empty:
+        return pd.DataFrame(columns=['country', 'platform', 'campaign_name', 'ad_name', 'net_proceeds', 'spend', 'roas'])
+
+    df_f = df.copy()
+
+    # Restrict to only the 4 target countries (US, Canada, UK, Australia)
+    target_countries = ['us', 'gb', 'ca', 'au', 'united states', 'united kingdom', 'canada', 'australia']
+    df_f = df_f[df_f['country'].str.lower().isin(target_countries)]
+
+    # Filter by platform
+    if platform and platform not in ("", "All"):
+        # We lowercase both sides to be safe
+        df_f = df_f[df_f['platform'].str.lower() == platform.lower()]
+
+    # Filter by country
+    if country and country not in ("", "All", "Total"):
+        c_mapped = COUNTRY_MAP.get(country, country)
+        # Check against both the exact 2-letter code or the mapped full name, since Adjust format can vary
+        df_f = df_f[(df_f['country'].str.upper() == country) | (df_f['country'].str.lower() == country.lower()) | (df_f['country'] == c_mapped)]
+
+    # 1. Halve the all_revenue
+    df_f['revenue_adj'] = df_f['total_all_revenue'] / 2.0
+
+    # 2. Apply platform fees
+    ios_multiplier = 1.0 - (ios_fee_pct / 100.0)
+    
+    def apply_fee(row):
+        plat = str(row['platform']).lower()
+        if 'android' in plat:
+            return row['revenue_adj'] * 0.85
+        elif 'ios' in plat:
+            return row['revenue_adj'] * ios_multiplier
+        return row['revenue_adj'] * 0.85 # default fallback
+        
+    df_f['net_proceeds'] = df_f.apply(apply_fee, axis=1)
+    df_f['spend'] = df_f['total_spend']
+    
+    # 3. Calculate True ROAS
+    df_f['roas'] = df_f.apply(lambda x: x['net_proceeds'] / x['spend'] if x['spend'] > 0 else 0, axis=1)
+
+    return df_f[['country', 'platform', 'campaign_name', 'ad_name', 'net_proceeds', 'spend', 'roas']]
+
+
 # ── ARPU Queries (Unchanged as they are very specific to Total) ───────────────
 def get_arpu_daily(start_date, end_date, country=None, platform=None) -> pd.DataFrame:
     def _query():

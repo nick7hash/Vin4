@@ -460,5 +460,99 @@ def granularity_control(ctrl_id, value="Day"):
         labelClassName="granularity-label",
     )
 
+# ── iOS Fee Toggle ───────────────────────────────────────────────────────────
+def ios_fee_toggle(toggle_id="ios-fee-toggle", default_val=15):
+    """A styled pill toggle for the iOS fee percentage."""
+    return html.Div(
+        className="ios-fee-toggle-container",
+        children=[
+            html.Span("iOS Fee:", className="ios-fee-label"),
+            dcc.RadioItems(
+                id=toggle_id,
+                options=[
+                    {"label": " 15%", "value": 15},
+                    {"label": " 30%", "value": 30},
+                ],
+                value=default_val,
+                inline=True,
+                className="ios-fee-radio",
+                inputClassName="ios-fee-input",
+                labelClassName="ios-fee-radio-label",
+            )
+        ]
+    )
 
+# ── True ROAS Figure ──────────────────────────────────────────────────────────
+def true_roas_figure(df, drill_level="campaign"):
+    """
+    Bar chart for True ROAS broken down by Country, Campaign, or Ad.
+    drill_level options: 'country', 'campaign', 'ad'
+    """
+    if df.empty:
+        return _empty_figure("No True ROAS data available for these filters")
 
+    # Determine the grouping column based on drill_level
+    if drill_level == "country":
+        group_col = "country"
+    elif drill_level == "ad":
+        group_col = "ad_name"
+    else:
+        group_col = "campaign_name" # default
+
+    # Handle missing values to prevent Plotly from crashing (white chart issue)
+    df = df.copy()
+    df[group_col] = df[group_col].fillna("Unknown").astype(str)
+
+    # Group the dataframe by the selected level
+    # We sum net_proceeds and spend, then recalculate roas
+    grouped = df.groupby(group_col, as_index=False)[['net_proceeds', 'spend']].sum()
+    
+    # Filter out 0 spend rows to prevent clutter/organic campaigns showing up as 0 ROAS
+    grouped = grouped[grouped['spend'] > 0]
+    
+    grouped['roas'] = grouped.apply(lambda x: x['net_proceeds'] / x['spend'] if x['spend'] > 0 else 0, axis=1)
+    
+    # Sort by spend (ascending for horizontal bar chart layout)
+    grouped = grouped.sort_values('spend', ascending=True).tail(20) # top 20 by spend
+
+    if grouped.empty:
+        return _empty_figure(f"No {drill_level} data with valid spend")
+
+    # Color logic: Green if >= 1, Red if < 1
+    colors = ['#10B981' if r >= 1 else '#EF4444' for r in grouped['roas']]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        y=grouped[group_col],
+        x=grouped['roas'],
+        orientation='h',
+        marker_color=colors,
+        text=[f"{r:.2f}x" for r in grouped['roas']],
+        textposition='outside',
+        textfont=dict(color="#E5E7EB"),
+        customdata=grouped[['net_proceeds', 'spend']].values,
+        hovertemplate=(
+            "<b>%{y}</b><br>"
+            "ROAS: %{x:.2f}x<br>"
+            "Net Proceeds: $%{customdata[0]:,.2f}<br>"
+            "Spend: $%{customdata[1]:,.2f}"
+            "<extra></extra>"
+        )
+    ))
+
+    # Reference line at break-even (ROAS = 1)
+    fig.add_vline(x=1, line_dash="dash", line_color="#6B7280", opacity=0.5,
+                  annotation_text="Break-even", annotation_font_color="#6B7280")
+
+    layout = dict(CHART_LAYOUT)
+    layout["margin"] = dict(l=16, r=40, t=20, b=16) # adjust margins for horizontal bars
+    layout["xaxis"] = dict(CHART_LAYOUT["xaxis"])
+    layout["xaxis"]["ticksuffix"] = "x"
+    layout["xaxis"]["title"] = "ROAS"
+    layout["yaxis"] = dict(CHART_LAYOUT["yaxis"])
+    layout["yaxis"]["tickmode"] = "linear" # show all labels
+    layout["yaxis"]["automargin"] = True # ensure long labels fit without cutting off or blanking chart
+    layout["clickmode"] = "event+select" # Enable clicking
+    
+    fig.update_layout(**layout)
+    return fig

@@ -581,3 +581,114 @@
     gap: 16px;
     margin-bottom: 32px;
 }
+
+/* ── True ROAS Section ──────────────────────────────────────────────────────── */
+.true-roas-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    background: rgba(17, 24, 39, 0.6);
+    padding: 12px 20px;
+    border-radius: 12px;
+    border: 1px solid #374151;
+}
+
+.ios-fee-toggle-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #1F2937;
+    padding: 6px 12px;
+    border-radius: 20px;
+    border: 1px solid #4B5563;
+}
+
+.ios-fee-label {
+    color: #9CA3AF;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
+}
+
+.ios-fee-radio-label {
+    color: #E5E7EB;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    margin-left: 8px;
+}
+
+.ios-fee-input {
+    accent-color: #A855F7;
+    cursor: pointer;
+}
+
+.roas-summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: "Inter", sans-serif;
+}
+
+.roas-lbl {
+    color: #9CA3AF;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.roas-val {
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.roas-val.positive {
+    color: #10B981;
+}
+
+.roas-val.negative {
+    color: #EF4444;
+}
+
+.roas-sublbl {
+    color: #6B7280;
+    font-size: 12px;
+}
+
+.drill-buttons {
+    display: flex;
+    gap: 4px;
+    background: rgba(17, 24, 39, 0.8);
+    padding: 4px;
+    border-radius: 8px;
+    border: 1px solid #374151;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.drill-btn {
+    background: transparent;
+    border: none;
+    color: #9CA3AF;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: "Inter", sans-serif;
+}
+
+.drill-btn:hover {
+    color: #E5E7EB;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.drill-btn--active {
+    background: #7C3AED;
+    color: #FFFFFF;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.drill-btn--active:hover {
+    background: #6D28D9;
+}

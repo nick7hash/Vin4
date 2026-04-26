@@ -16,13 +16,14 @@ from data import (
     get_monthly_churn, get_cohort_ltv_data,
     get_roas_data, get_cac_data,
     get_cac_ltv_thresholds, get_ltv_net_data,
+    get_true_roas_data,
 )
 from components import (
     kpi_card, chart_card, granularity_control, drilldown_control,
     proceeds_figure, arpu_line_figure, conversion_rate_figure,
     churn_figure, ltv_cohort_figure, roas_figure, cac_figure,
     cac_ltv_threshold_figure, ltv_net_figure,
-    fmt_currency, fmt_count,
+    fmt_currency, fmt_count, ios_fee_toggle, true_roas_figure,
 )
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -164,6 +165,8 @@ def home_layout():
             dcc.Store(id="store-dates",
                       data={"start": str(_default_start), "end": str(_default_end)}),
             dcc.Store(id="store-granularity", data={"proceeds": "Day", "arpu": "Day", "conversion": "Day"}),
+            dcc.Store(id="store-ios-fee", data={"fee": 15}),
+            dcc.Store(id="store-roas-drill", data={"level": "country", "filter_country": None, "filter_campaign": None}),
 
             # Auto-refresh every 5 min
             dcc.Interval(id="interval", interval=300_000, n_intervals=0),
@@ -243,6 +246,37 @@ def home_layout():
                     # These cards show the high-level summary (Active Subs, Revenue, Proceeds, Spend).
                     html.Div("Key Metrics", className="section-label"),
                     html.Div(id="kpi-grid", className="kpi-grid"),
+
+                    html.Div(className="divider"),
+
+                    # ── True ROAS ──
+                    html.Div(
+                        className="section-label",
+                        children=[
+                            html.Span("True ROAS "),
+                            html.Span(
+                                "ⓘ",
+                                title="Data filtered to US, CA, GB, AU.\nFormula: (Adjust All Revenue / 2) * Platform Fee / Spend.\nExcludes campaigns with 0 spend.",
+                                style={"cursor": "help", "fontSize": "13px", "color": "#A855F7"}
+                            )
+                        ]
+                    ),
+                    html.Div(className="true-roas-header", children=[
+                        ios_fee_toggle("toggle-ios-fee", 15),
+                        html.Div(id="roas-summary", className="roas-summary"),
+                    ]),
+                    chart_card(
+                        title="True ROAS Breakdown",
+                        graph_id="chart-true-roas",
+                        height=550,
+                        controls=[
+                            html.Div(className="drill-buttons", children=[
+                                html.Button("Country", id="drill-country", className="drill-btn drill-btn--active", n_clicks=0),
+                                html.Button("Campaign", id="drill-campaign", className="drill-btn", n_clicks=0),
+                                html.Button("Ad", id="drill-ad", className="drill-btn", n_clicks=0),
+                            ])
+                        ]
+                    ),
 
                     html.Div(className="divider"),
 
@@ -696,6 +730,135 @@ def update_ltv(start, end, ltv_country, platform, _):
         print(f"[app] update_ltv: {e}")
         from components import _empty_figure
         return _empty_figure(f"Error: {e}")
+
+# =============================================================================
+# ── Callback 8: True ROAS Store & Drilldown logic ──
+# =============================================================================
+@dash_app.callback(
+    Output("store-ios-fee", "data"),
+    Input("toggle-ios-fee", "value"),
+    prevent_initial_call=False,
+)
+def update_ios_fee_store(fee_val):
+    return {"fee": fee_val}
+
+@dash_app.callback(
+    Output("store-roas-drill", "data"),
+    Output("drill-country", "className"),
+    Output("drill-campaign", "className"),
+    Output("drill-ad", "className"),
+    Input("drill-country", "n_clicks"),
+    Input("drill-campaign", "n_clicks"),
+    Input("drill-ad", "n_clicks"),
+    Input("chart-true-roas", "clickData"),
+    State("store-roas-drill", "data"),
+    prevent_initial_call=True,
+)
+def handle_roas_drilldown(c_clicks, camp_clicks, ad_clicks, click_data, current_state):
+    ctx = callback_context
+    state = current_state or {"level": "country", "filter_country": None, "filter_campaign": None}
+    
+    if not ctx.triggered:
+        return state, "drill-btn drill-btn--active", "drill-btn", "drill-btn"
+
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    level = state.get("level", "country")
+    
+    if trigger_id == "chart-true-roas":
+        if click_data and "points" in click_data:
+            clicked_val = click_data["points"][0]["y"]
+            if level == "country":
+                state["filter_country"] = clicked_val
+                state["level"] = "campaign"
+            elif level == "campaign":
+                state["filter_campaign"] = clicked_val
+                state["level"] = "ad"
+    else:
+        if trigger_id == "drill-country": 
+            state["level"] = "country"
+            state["filter_country"] = None
+            state["filter_campaign"] = None
+        elif trigger_id == "drill-campaign":
+            state["level"] = "campaign"
+            state["filter_campaign"] = None
+        elif trigger_id == "drill-ad": 
+            state["level"] = "ad"
+            
+    level = state["level"]
+    cls_c = "drill-btn" + (" drill-btn--active" if level == "country" else "")
+    cls_camp = "drill-btn" + (" drill-btn--active" if level == "campaign" else "")
+    cls_ad = "drill-btn" + (" drill-btn--active" if level == "ad" else "")
+    
+    return state, cls_c, cls_camp, cls_ad
+
+# =============================================================================
+# ── Callback 9: True ROAS Chart & Summary ──
+# =============================================================================
+@dash_app.callback(
+    Output("chart-true-roas", "figure"),
+    Output("roas-summary", "children"),
+    Input("filter-dates",      "start_date"),
+    Input("filter-dates",      "end_date"),
+    Input("filter-country",    "value"),
+    Input("filter-platform",   "value"),
+    Input("store-ios-fee",     "data"),
+    Input("store-roas-drill",  "data"),
+    Input("interval",          "n_intervals"),
+    prevent_initial_call=False,
+)
+def update_true_roas(start, end, country, platform, ios_store, drill_store, _):
+    if not start or not end:
+        start, end = str(_default_start), str(_default_end)
+        
+    fee = ios_store.get("fee", 15) if ios_store else 15
+    drill_st = drill_store or {"level": "country", "filter_country": None, "filter_campaign": None}
+    level = drill_st.get("level", "country")
+    filter_country = drill_st.get("filter_country")
+    filter_campaign = drill_st.get("filter_campaign")
+    
+    from components import _empty_figure
+    
+    try:
+        df = get_true_roas_data(start, end, country, platform, fee)
+        
+        if not df.empty:
+            # Apply interactive drilldown filters
+            if filter_country:
+                # Fillna because we fillna in components, let's be safe
+                df = df[df['country'].fillna("Unknown").astype(str) == filter_country]
+            if filter_campaign:
+                df = df[df['campaign_name'].fillna("Unknown").astype(str) == filter_campaign]
+
+        # Summary
+        if df.empty:
+            summary = html.Span("No ROAS data")
+            fig = true_roas_figure(df, drill_level=level)
+        else:
+            tot_net = df['net_proceeds'].sum()
+            tot_spend = df['spend'].sum()
+            avg_roas = (tot_net / tot_spend) if tot_spend > 0 else 0
+            
+            cls = "roas-val positive" if avg_roas >= 1 else "roas-val negative"
+            
+            # Show breadcrumb in summary if drilled down
+            breadcrumb = ""
+            if filter_campaign:
+                breadcrumb = f" ({filter_country} > {filter_campaign})"
+            elif filter_country:
+                breadcrumb = f" ({filter_country})"
+
+            summary = html.Div([
+                html.Span("Avg ROAS: ", className="roas-lbl"),
+                html.Span(f"{avg_roas:.2f}x", className=cls),
+                html.Span(f" (Net: ${tot_net:,.0f} | Spend: ${tot_spend:,.0f}){breadcrumb}", className="roas-sublbl")
+            ])
+            
+            fig = true_roas_figure(df, drill_level=level)
+        
+        return fig, summary
+    except Exception as e:
+        print(f"[app] update_true_roas: {e}")
+        return _empty_figure(f"Error: {e}"), html.Span("Error loading ROAS")
 
 # ── Run ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
