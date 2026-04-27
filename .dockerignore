@@ -3,7 +3,6 @@ __pycache__/
 *.pyo
 .env
 *.json
-!vinita-key.json
 .git/
 .venv/
 venv/
