@@ -534,7 +534,7 @@ def get_cac_ltv_thresholds(start_date, end_date, country=None, platform=None) ->
     return merged.sort_values('date')
 
 # ── TRUE ROAS / META ROAS ───────────────────────────────────────────────────────
-def get_true_roas_data(start_date, end_date, country=None, platform=None, ios_fee_pct=15, roas_type='true') -> pd.DataFrame:
+def get_true_roas_data(start_date, end_date, country=None, platform=None, roas_type='true') -> pd.DataFrame:
     """
     Fetches True ROAS data broken down by Country, Campaign, and Ad.
     
@@ -604,17 +604,8 @@ def get_true_roas_data(start_date, end_date, country=None, platform=None, ios_fe
         df_f['revenue_adj'] = df_f['total_all_revenue'] / 2.0
 
         # 2. Apply platform fees
-        ios_multiplier = 1.0 - (ios_fee_pct / 100.0)
-        
-        def apply_fee(row):
-            plat = str(row['platform']).lower()
-            if 'android' in plat:
-                return row['revenue_adj'] * 0.85
-            elif 'ios' in plat:
-                return row['revenue_adj'] * ios_multiplier
-            return row['revenue_adj'] * 0.85 # default fallback
-            
-        df_f['net_proceeds'] = df_f.apply(apply_fee, axis=1)
+        # Both iOS and Android apply a default 15% fee (multiplier 0.85)
+        df_f['net_proceeds'] = df_f['revenue_adj'] * 0.85
 
     df_f['spend'] = df_f['total_spend']
     

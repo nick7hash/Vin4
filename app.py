@@ -230,13 +230,17 @@ def home_layout():
                     ),
                 ]),
             ]),
-
             # =====================================================================
             # ══════════════ MAIN CONTENT AREA ══════════════
             # This is where all the charts and scorecards are displayed.
             # `dcc.Loading` wraps the entire area so a spinner shows up when data is loading.
             # =====================================================================
             html.Main(className="main-content", children=[
+                # ── Page Tab Navigation ──
+                html.Div(className="page-tab-nav", children=[
+                    dcc.Link("Overview",  href="/",         className="page-tab page-tab--active"),
+                    dcc.Link("Meta Ads",  href="/facebook", className="page-tab"),
+                ]),
 
                 dcc.Loading(type="default", color="#4B5563", children=[
 
@@ -355,7 +359,6 @@ def facebook_layout():
     return html.Div(
         className="app-shell",
         children=[
-            dcc.Store(id="store-ios-fee", data={"fee": 15}),
             dcc.Store(id="store-roas-drill", data={"level": "country", "filter_country": None, "filter_campaign": None}),
 
             # Auto-refresh every 5 min
@@ -365,7 +368,7 @@ def facebook_layout():
                 html.Div(className="header-brand", children=[
                     html.Div(html.Img(src="/assets/fb-icon.svg", style={"width": "32px", "height": "32px", "filter": "invert(1)"}), className="header-logo"),
                     html.Div([
-                        html.Div("Facebook Analytics", className="header-title"),
+                        html.Div("Vinita Analytics", className="header-title"),
                         html.Div("Performance & True ROAS", className="header-sub"),
                     ]),
                 ]),
@@ -399,8 +402,12 @@ def facebook_layout():
                     ),
                 ]),
             ]),
-
             html.Main(className="main-content", children=[
+                # ── Page Tab Navigation ──
+                html.Div(className="page-tab-nav", children=[
+                    dcc.Link("Overview",  href="/",         className="page-tab"),
+                    dcc.Link("Facebook",  href="/facebook", className="page-tab page-tab--active"),
+                ]),
                 dcc.Loading(type="default", color="#4B5563", children=[
                     html.Div("Facebook KPIs", className="section-label"),
                     html.Div(id="fb-kpi-grid", className="kpi-grid"),
@@ -431,7 +438,6 @@ def facebook_layout():
                             inputClassName="ios-fee-input",
                             labelClassName="ios-fee-radio-label",
                         ),
-                        ios_fee_toggle("toggle-ios-fee", 15),
                         html.Div(id="roas-summary", className="roas-summary"),
                     ]),
                     chart_card(
@@ -469,29 +475,6 @@ def main_layout():
         className="app-container",
         children=[
             dcc.Location(id="url", refresh=False),
-            html.Nav(
-                className="sidebar",
-                children=[
-                    dcc.Link(
-                        html.Div(
-                            html.Img(src="/assets/home-icon.svg", style={"width": "24px", "height": "24px", "filter": "invert(1)"}),
-                            className="nav-icon"
-                        ),
-                        href="/",
-                        className="nav-link",
-                        title="Home"
-                    ),
-                    dcc.Link(
-                        html.Div(
-                            html.Img(src="/assets/fb-icon.svg", style={"width": "24px", "height": "24px", "filter": "invert(1)"}),
-                            className="nav-icon"
-                        ),
-                        href="/facebook",
-                        className="nav-link",
-                        title="Facebook"
-                    )
-                ]
-            ),
             html.Div(id="page-content", className="page-content-wrapper")
         ]
     )
@@ -808,13 +791,7 @@ def update_ltv(start, end, ltv_country, platform, _):
 # =============================================================================
 # ── Callback 8: True ROAS Store & Drilldown logic ──
 # =============================================================================
-@dash_app.callback(
-    Output("store-ios-fee", "data"),
-    Input("toggle-ios-fee", "value"),
-    prevent_initial_call=False,
-)
-def update_ios_fee_store(fee_val):
-    return {"fee": fee_val}
+
 
 @dash_app.callback(
     Output("store-roas-drill", "data"),
@@ -874,17 +851,15 @@ def handle_roas_drilldown(c_clicks, camp_clicks, ad_clicks, click_data, current_
     Input("fb-filter-dates",   "start_date"),
     Input("fb-filter-dates",   "end_date"),
     Input("fb-filter-platform","value"),
-    Input("store-ios-fee",     "data"),
     Input("store-roas-drill",  "data"),
     Input("toggle-roas-type",  "value"),
     Input("fb-interval",       "n_intervals"),
     prevent_initial_call=False,
 )
-def update_true_roas(start, end, platform, ios_store, drill_store, roas_type, _):
+def update_true_roas(start, end, platform, drill_store, roas_type, _):
     if not start or not end:
         start, end = str(_default_start), str(_default_end)
         
-    fee = ios_store.get("fee", 15) if ios_store else 15
     drill_st = drill_store or {"level": "country", "filter_country": None, "filter_campaign": None}
     level = drill_st.get("level", "country")
     filter_country = drill_st.get("filter_country")
@@ -893,7 +868,7 @@ def update_true_roas(start, end, platform, ios_store, drill_store, roas_type, _)
     from components import _empty_figure
     
     try:
-        df = get_true_roas_data(start, end, None, platform, fee, roas_type)
+        df = get_true_roas_data(start, end, None, platform, roas_type=roas_type)
         
         if not df.empty:
             # Apply interactive drilldown filters
