@@ -406,10 +406,10 @@ def facebook_layout():
                 # ── Page Tab Navigation ──
                 html.Div(className="page-tab-nav", children=[
                     dcc.Link("Overview",  href="/",         className="page-tab"),
-                    dcc.Link("Facebook",  href="/facebook", className="page-tab page-tab--active"),
+                    dcc.Link("Meta Ads",  href="/facebook", className="page-tab page-tab--active"),
                 ]),
                 dcc.Loading(type="default", color="#4B5563", children=[
-                    html.Div("Facebook KPIs", className="section-label"),
+                    html.Div("Meta Ads KPIs", className="section-label"),
                     html.Div(id="fb-kpi-grid", className="kpi-grid"),
 
                     html.Div(className="divider"),
