@@ -8,3 +8,4 @@ python-dotenv==1.0.1
 pyarrow==18.0.0
 redis==5.0.4
 google-cloud-bigquery-storage==2.26.0
+gunicorn==22.0.0

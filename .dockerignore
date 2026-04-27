@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.json
+!vinita-key.json
+.git/
+.venv/
+venv/
+*.log
