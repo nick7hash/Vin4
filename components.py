@@ -525,7 +525,7 @@ def true_roas_figure(df, drill_level="campaign", roas_type="true"):
     grouped['roas'] = grouped.apply(lambda x: x['net_proceeds'] / x['spend'] if x['spend'] > 0 else 0, axis=1)
     
     # Sort by spend (ascending for horizontal bar chart layout)
-    grouped = grouped.sort_values('spend', ascending=True).tail(20) # top 20 by spend
+    grouped = grouped.sort_values('spend', ascending=True).tail(100) # top 100 by spend
 
     if grouped.empty:
         return _empty_figure(f"No {drill_level} data with valid spend")
@@ -538,19 +538,22 @@ def true_roas_figure(df, drill_level="campaign", roas_type="true"):
         colors = ['#10B981' if r >= 1 else '#EF4444' for r in grouped['roas']]
         hover_proceeds_label = "Net Proceeds"
 
+    # Ensure minimum bar width so 0 ROAS campaigns are still clickable
+    grouped['display_roas'] = grouped['roas'].apply(lambda r: max(r, 0.05))
+
     fig = go.Figure()
     fig.add_trace(go.Bar(
         y=grouped[group_col],
-        x=grouped['roas'],
+        x=grouped['display_roas'],
         orientation='h',
         marker_color=colors,
         text=[f"{r:.2f}x" for r in grouped['roas']],
         textposition='outside',
         textfont=dict(color="#E5E7EB"),
-        customdata=grouped[['net_proceeds', 'spend']].values,
+        customdata=grouped[['net_proceeds', 'spend', 'roas']].values,
         hovertemplate=(
             "<b>%{y}</b><br>"
-            "ROAS: %{x:.2f}x<br>"
+            "ROAS: %{customdata[2]:.2f}x<br>"
             f"{hover_proceeds_label}: $%{{customdata[0]:,.2f}}<br>"
             "Spend: $%{customdata[1]:,.2f}"
             "<extra></extra>"

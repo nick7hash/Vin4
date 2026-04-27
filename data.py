@@ -695,9 +695,12 @@ def get_arpu_by_platform(start_date, end_date) -> pd.DataFrame:
     return _get_cached(_cache_key('arpu_by_platform', {'start': start_date, 'end': end_date}), _query)
 
 # ── FACEBOOK ANALYTICS ────────────────────────────────────────────────────────
-def get_facebook_kpi_data(start_date, end_date) -> dict:
+def get_facebook_kpi_data(start_date, end_date, platform=None) -> dict:
     def _query():
         client = get_bq_client()
+        p_filter = ""
+        if platform and platform not in ("All", ""):
+            p_filter = f" AND LOWER(platform) = '{platform.lower()}'"
         q = f"""
             SELECT
                 SUM(spend) AS spend,
@@ -706,7 +709,7 @@ def get_facebook_kpi_data(start_date, end_date) -> dict:
                 SUM(reach) AS reach
             FROM `{TABLE}`
             WHERE CAST(date AS DATE) BETWEEN '{start_date}' AND '{end_date}'
-              AND adplatform = 'Facebook'
+              AND adplatform = 'Facebook'{p_filter}
         """
         try:
             df = client.query(q).to_dataframe()
@@ -717,7 +720,7 @@ def get_facebook_kpi_data(start_date, end_date) -> dict:
             print(f"[data] get_facebook_kpi_data ERROR: {e}")
             return pd.DataFrame(columns=['spend', 'clicks', 'impressions', 'reach'])
             
-    df = _get_cached(_cache_key('facebook_kpi', {'start': start_date, 'end': end_date}), _query)
+    df = _get_cached(_cache_key('facebook_kpi', {'start': start_date, 'end': end_date, 'p': platform}), _query)
     
     if df.empty or len(df) == 0:
         return {"spend": 0, "ctr": 0, "cpm": 0, "cost_per_reach": 0}

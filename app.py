@@ -371,6 +371,22 @@ def facebook_layout():
                 ]),
 
                 html.Div(className="header-controls", children=[
+                    dcc.Dropdown(
+                        id="fb-filter-platform",
+                        options=[
+                            {"label": "iOS", "value": "ios"},
+                            {"label": "Android", "value": "android"}
+                        ],
+                        value=None,
+                        clearable=True,
+                        searchable=False,
+                        placeholder="Platform…",
+                        className="platform-dropdown",
+                        style={
+                            "width": "160px", "fontSize": "12.5px",
+                            "fontFamily": "Inter, sans-serif",
+                        },
+                    ),
                     dcc.DatePickerRange(
                         id="fb-filter-dates",
                         min_date_allowed=date(2020, 1, 1),
@@ -857,13 +873,14 @@ def handle_roas_drilldown(c_clicks, camp_clicks, ad_clicks, click_data, current_
     Output("roas-summary", "children"),
     Input("fb-filter-dates",   "start_date"),
     Input("fb-filter-dates",   "end_date"),
+    Input("fb-filter-platform","value"),
     Input("store-ios-fee",     "data"),
     Input("store-roas-drill",  "data"),
     Input("toggle-roas-type",  "value"),
     Input("fb-interval",       "n_intervals"),
     prevent_initial_call=False,
 )
-def update_true_roas(start, end, ios_store, drill_store, roas_type, _):
+def update_true_roas(start, end, platform, ios_store, drill_store, roas_type, _):
     if not start or not end:
         start, end = str(_default_start), str(_default_end)
         
@@ -876,7 +893,7 @@ def update_true_roas(start, end, ios_store, drill_store, roas_type, _):
     from components import _empty_figure
     
     try:
-        df = get_true_roas_data(start, end, None, None, fee, roas_type)
+        df = get_true_roas_data(start, end, None, platform, fee, roas_type)
         
         if not df.empty:
             # Apply interactive drilldown filters
@@ -926,15 +943,16 @@ def update_true_roas(start, end, ios_store, drill_store, roas_type, _):
     Output("fb-kpi-grid", "children"),
     Input("fb-filter-dates", "start_date"),
     Input("fb-filter-dates", "end_date"),
+    Input("fb-filter-platform", "value"),
     Input("fb-interval", "n_intervals"),
     prevent_initial_call=False,
 )
-def update_fb_kpis(start, end, _):
+def update_fb_kpis(start, end, platform, _):
     if not start or not end:
         start, end = "2025-01-01", "2025-12-31"
 
     try:
-        data = get_facebook_kpi_data(start, end)
+        data = get_facebook_kpi_data(start, end, platform)
     except Exception as e:
         print(f"[app] update_fb_kpis: {e}")
         data = {"spend": 0, "ctr": 0, "cpm": 0, "cost_per_reach": 0}
