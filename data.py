@@ -763,3 +763,216 @@ def get_meta_roas_data(start_date, end_date) -> pd.DataFrame:
             return pd.DataFrame(columns=['date', 'total_purchase', 'total_spend', 'roas'])
 
     return _get_cached(_cache_key('meta_roas', {'start': start_date, 'end': end_date}), _query)
+
+
+# =============================================================================
+# ── Break-Even & Payback Period Data ──
+# Calculates monthly cumulative net ARPU per user vs the average CAC.
+# Used by BOTH the Break-Even Point page and the Payback Period page.
+#
+# Logic:
+#   1. avg_cac  = total_spend / total_new_paid_subscriptions  (for the period)
+#   2. monthly_arpu_net = monthly_proceeds / end_of_month_active_subs
+#   3. cumulative_arpu_net = running total of monthly_arpu_net
+#   4. Break-even / payback = first month where cumulative_arpu_net >= avg_cac
+#
+# One series is built per country so all countries appear in one chart.
+# =============================================================================
+def get_breakeven_data(start_date, end_date, country=None, platform=None) -> pd.DataFrame:
+    df = _get_base_final_df(start_date, end_date)
+    if df.empty:
+        return pd.DataFrame()
+
+    s_dt, e_dt = pd.to_datetime(start_date), pd.to_datetime(end_date)
+    df = df[(df['date'] >= s_dt) & (df['date'] <= e_dt)]
+
+    # Platform filter
+    if platform and platform not in ('', 'All'):
+        df = df[df['rc_platform'] == platform]
+
+    # Country scope: single country or all 4 standard countries
+    mapped_countries = list(COUNTRY_MAP.values())   # ['United States', ...]
+    if country and country not in ('', 'All', 'Total'):
+        c_mapped = COUNTRY_MAP.get(country, country)
+        df = df[df['rc_country'] == c_mapped]
+        countries_to_run = [c_mapped]
+    else:
+        df = df[df['rc_country'].isin(mapped_countries)]
+        countries_to_run = [c for c in mapped_countries if c in df['rc_country'].unique()]
+
+    results = []
+    for ctry in countries_to_run:
+        ctry_df = df[df['rc_country'] == ctry].copy()
+        if ctry_df.empty:
+            continue
+
+        # Average CAC for this country over the whole selected period
+        total_spend = ctry_df['spend'].sum()
+        total_new_subs = ctry_df['total_new_paid_subscriptions'].sum()
+        avg_cac = total_spend / total_new_subs if total_new_subs > 0 else 0
+        if avg_cac <= 0:
+            continue
+
+        # Monthly ARPU_net — match the pattern used by get_ltv_net_data
+        ctry_df['month'] = ctry_df['date'].dt.to_period('M')
+        monthly_rows = []
+        for m, m_df in ctry_df.groupby('month'):
+            m_df_s = m_df.sort_values('date')
+            last_day = m_df_s['date'].max()
+            end_subs = m_df_s[m_df_s['date'] == last_day]['active_subscriptions'].sum()
+            monthly_proceeds = m_df_s['proceeds'].sum()
+            arpu_net = (monthly_proceeds / end_subs) if end_subs > 0 else 0
+            monthly_rows.append({
+                'month': m,
+                'month_label': str(m),
+                'monthly_arpu_net': arpu_net,
+            })
+
+        if not monthly_rows:
+            continue
+
+        monthly = pd.DataFrame(monthly_rows).sort_values('month')
+        monthly['cumulative_arpu_net'] = monthly['monthly_arpu_net'].cumsum()
+        monthly['month_num'] = range(1, len(monthly) + 1)
+        monthly['country'] = ctry
+        monthly['avg_cac'] = avg_cac
+
+        results.append(monthly[['country', 'month_label', 'month_num',
+                                 'monthly_arpu_net', 'cumulative_arpu_net', 'avg_cac']])
+
+    if not results:
+        return pd.DataFrame()
+    return pd.concat(results, ignore_index=True)
+
+
+# =============================================================================
+# ── ROI Data ──
+# Returns both a scalar summary dict AND a monthly trend DataFrame.
+#
+# ROI = ((LTV_horizon - CAC) / CAC) * 100
+#   LTV_90d  → 3-month ROI proxy  (realized_ltv_90d  from cohort table)
+#   LTV_180d → 6-month ROI proxy
+#   LTV_365d → 12-month ROI proxy
+#   Full LTV → calculated via ARPU / churn rate  (same formula as get_ltv_net_data)
+#
+# avg_cac = total_spend / total_new_paid_subscriptions
+# =============================================================================
+def get_roi_data(start_date, end_date, country=None, platform=None) -> dict:
+    df_cohort = _get_base_cohort_df(start_date, end_date)
+    df_final  = _get_base_final_df(start_date, end_date)
+
+    s_dt, e_dt = pd.to_datetime(start_date), pd.to_datetime(end_date)
+    df_final = df_final[(df_final['date'] >= s_dt) & (df_final['date'] <= e_dt)]
+
+    f_final  = _filter_df(df_final,  'rc_country', 'rc_platform', country, platform, map_country=True)
+    f_cohort = _filter_df(df_cohort, 'country',    'platform',    country, platform, map_country=False)
+
+    # ── CAC (overall average) ──
+    total_spend    = f_final['spend'].sum()
+    total_new_subs = f_final['total_new_paid_subscriptions'].sum()
+    avg_cac = total_spend / total_new_subs if total_new_subs > 0 else 0
+
+    # ── Horizon LTVs (average per-user from cohort table) ──
+    def _mean(col):
+        return float(f_cohort[col].mean()) if col in f_cohort.columns and not f_cohort.empty else 0.0
+
+    ltv_90d  = _mean('realized_ltv_90d')
+    ltv_180d = _mean('realized_ltv_180d')
+    ltv_365d = _mean('realized_ltv_365d')
+
+    # ── Full LTV via ARPU / churn (mirrors get_ltv_net_data logic) ──
+    ltv_full = 0.0
+    if not f_final.empty:
+        f_final_copy = f_final.copy()
+        f_final_copy['month'] = f_final_copy['date'].dt.to_period('M')
+        monthly_ltvs = []
+        for m, m_df in f_final_copy.groupby('month'):
+            m_df_s = m_df.sort_values('date')
+            end_subs   = m_df_s.iloc[-1]['active_subscriptions']
+            tot_churn  = m_df_s['churned_active'].sum()
+            m_proceeds = m_df_s['proceeds'].sum()
+            churn_rate = (tot_churn / end_subs) if end_subs else 0
+            arpu_net   = (m_proceeds / end_subs) if end_subs else 0
+            ltv_m      = (arpu_net / churn_rate) if churn_rate > 0 else 0
+            monthly_ltvs.append(ltv_m)
+        ltv_full = float(pd.Series(monthly_ltvs).mean()) if monthly_ltvs else 0.0
+
+    def _roi(ltv, cac):
+        if cac <= 0:
+            return 0.0
+        return round(((ltv - cac) / cac) * 100, 2)
+
+    # ── Monthly trend: ROI per month ──
+    trend_rows = []
+    if not f_cohort.empty and not f_final.empty:
+        f_cohort_copy = f_cohort.copy()
+        f_cohort_copy['month'] = f_cohort_copy['date'].dt.to_period('M')
+        f_final_copy  = f_final.copy()
+        f_final_copy['month']  = f_final_copy['date'].dt.to_period('M')
+
+        cac_monthly = f_final_copy.groupby('month').apply(
+            lambda x: x['spend'].sum() / x['total_new_paid_subscriptions'].sum()
+            if x['total_new_paid_subscriptions'].sum() > 0 else 0
+        ).rename('cac')
+
+        ltv_monthly = f_cohort_copy.groupby('month').agg(
+            ltv_90d  =('realized_ltv_90d',  'mean'),
+            ltv_180d =('realized_ltv_180d', 'mean'),
+            ltv_365d =('realized_ltv_365d', 'mean'),
+        )
+
+        merged = pd.merge(cac_monthly, ltv_monthly, on='month', how='inner')
+        for _, row in merged.iterrows():
+            cac = row['cac']
+            trend_rows.append({
+                'month': row.name.to_timestamp(),
+                'roi_3m':  _roi(row['ltv_90d'],  cac),
+                'roi_6m':  _roi(row['ltv_180d'], cac),
+                'roi_12m': _roi(row['ltv_365d'], cac),
+            })
+
+    trend_df = pd.DataFrame(trend_rows).sort_values('month') if trend_rows else pd.DataFrame()
+
+    return {
+        'avg_cac':  round(avg_cac,  2),
+        'ltv_3m':   round(ltv_90d,  2),
+        'ltv_6m':   round(ltv_180d, 2),
+        'ltv_12m':  round(ltv_365d, 2),
+        'ltv_full': round(ltv_full, 2),
+        'roi_3m':   _roi(ltv_90d,  avg_cac),
+        'roi_6m':   _roi(ltv_180d, avg_cac),
+        'roi_12m':  _roi(ltv_365d, avg_cac),
+        'roi_full': _roi(ltv_full, avg_cac),
+        'trend_df': trend_df,
+    }
+
+
+# =============================================================================
+# ── Business Break-Even Data ──
+# First month where cumulative net proceeds >= cumulative ad spend.
+#
+# Returns a monthly DataFrame with:
+#   month | monthly_proceeds | monthly_spend | cumulative_proceeds | cumulative_spend | net_position
+# =============================================================================
+def get_biz_breakeven_data(start_date, end_date, country=None, platform=None) -> pd.DataFrame:
+    df = _get_base_final_df(start_date, end_date)
+    if df.empty:
+        return pd.DataFrame()
+
+    s_dt, e_dt = pd.to_datetime(start_date), pd.to_datetime(end_date)
+    df = df[(df['date'] >= s_dt) & (df['date'] <= e_dt)]
+
+    df_f = _filter_df(df, 'rc_country', 'rc_platform', country, platform, map_country=True)
+    if df_f.empty:
+        return pd.DataFrame()
+
+    df_f = df_f.copy()
+    df_f['month'] = df_f['date'].dt.to_period('M')
+    monthly = df_f.groupby('month')[['proceeds', 'spend']].sum().reset_index()
+    monthly = monthly.rename(columns={'proceeds': 'monthly_proceeds', 'spend': 'monthly_spend'})
+    monthly['month'] = monthly['month'].dt.to_timestamp()
+    monthly = monthly.sort_values('month')
+    monthly['cumulative_proceeds'] = monthly['monthly_proceeds'].cumsum()
+    monthly['cumulative_spend']    = monthly['monthly_spend'].cumsum()
+    monthly['net_position']        = monthly['cumulative_proceeds'] - monthly['cumulative_spend']
+    return monthly

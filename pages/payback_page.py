@@ -1,0 +1,75 @@
+"""
+pages/payback_page.py — Payback Period page.
+
+Shows when cumulative net proceeds per acquired user cross the avg CAC.
+
+  Formula: Payback Period = first month where cumulative ARPU_net >= CAC
+  Special case: if annual plan net proceeds > CAC on month 1 → Payback = Day 1
+
+Filled area chart with vertical marker at the exact payback month per country.
+"""
+from dash import html, dcc
+from components import chart_card
+from .shared import page_header, page_tab_nav, page_footer, LTV_COUNTRY_OPTIONS
+
+
+def payback_layout(default_start, default_end):
+    controls = [
+        dcc.Dropdown(
+            id="filter-platform",
+            options=[], value=None, clearable=True, searchable=True,
+            placeholder="Platform…", className="platform-dropdown",
+            style={"width": "160px", "fontSize": "12.5px", "fontFamily": "Inter, sans-serif"},
+        ),
+        dcc.Dropdown(
+            id="filter-country",
+            options=LTV_COUNTRY_OPTIONS,
+            value=None, clearable=True, searchable=True,
+            placeholder="Country…", className="country-dropdown",
+            style={"width": "200px", "fontSize": "12.5px", "fontFamily": "Inter, sans-serif"},
+        ),
+        dcc.DatePickerRange(
+            id="filter-dates",
+            min_date_allowed="2020-01-01", max_date_allowed="2026-12-31",
+            initial_visible_month=default_start,
+            start_date=default_start, end_date=default_end,
+            display_format="MMM D, YYYY", style={"fontSize": "12.5px"},
+        ),
+    ]
+
+    return html.Div(
+        className="app-shell",
+        children=[
+            dcc.Interval(id="interval", interval=300_000, n_intervals=0),
+            page_header(subtitle="Payback Period Analysis", controls=controls),
+
+            html.Main(className="main-content", children=[
+                page_tab_nav("payback"),
+
+                dcc.Loading(type="default", color="#4B5563", children=[
+                    html.Div("Payback Period", className="section-label"),
+                    html.Div(
+                        [
+                            html.Strong("Formula: "),
+                            "Payback Period = CAC ÷ Monthly Net ARPU",
+                            html.Br(),
+                            html.Span(
+                                "Uses net proceeds (after platform fees).  "
+                                "Dotted line = CAC threshold.  "
+                                "Vertical marker = month when CAC is fully recovered.",
+                                style={"color": "#6B7280"},
+                            ),
+                        ],
+                        style={"fontSize": "12px", "fontFamily": "Inter, sans-serif",
+                               "color": "#9CA3AF", "marginBottom": "16px"},
+                    ),
+                    chart_card(
+                        title="Payback Period — Cumulative Net ARPU vs CAC",
+                        graph_id="chart-payback",
+                        height=420,
+                    ),
+                ]),
+            ]),
+            page_footer(),
+        ],
+    )

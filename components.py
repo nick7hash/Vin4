@@ -576,3 +576,196 @@ def true_roas_figure(df, drill_level="campaign", roas_type="true"):
     
     fig.update_layout(**layout)
     return fig
+
+
+# =============================================================================
+# -- Break-Even Point Figure --
+# Multi-country: flat CAC line (dashed) + rising cumulative ARPU (solid).
+# =============================================================================
+def breakeven_figure(df):
+    if df is None or df.empty:
+        return _empty_figure("No data available — try a wider date range")
+    fig = go.Figure()
+    for i, ctry in enumerate(df["country"].unique()):
+        c_df   = df[df["country"] == ctry].sort_values("month_num")
+        color  = ACCENT_COLORS[i % len(ACCENT_COLORS)]
+        cac    = c_df["avg_cac"].iloc[0]
+        x_nums = c_df["month_num"].tolist()
+        x_labs = c_df["month_label"].tolist()
+        fig.add_trace(go.Scatter(
+            x=x_nums, y=c_df["cumulative_arpu_net"],
+            mode="lines+markers", name=f"{ctry} — Cum. ARPU",
+            line=dict(color=color, width=2.5), marker=dict(size=5),
+            customdata=x_labs,
+            hovertemplate="<b>%{customdata}</b><br>Cum. ARPU: $%{y:.2f}<extra></extra>",
+        ))
+        fig.add_trace(go.Scatter(
+            x=[x_nums[0], x_nums[-1]], y=[cac, cac],
+            mode="lines", name=f"{ctry} — CAC (${cac:.0f})",
+            line=dict(color=color, width=1.5, dash="dash"),
+            hovertemplate=f"<b>{ctry} CAC</b>: ${cac:.2f}<extra></extra>",
+        ))
+        cross = c_df[c_df["cumulative_arpu_net"] >= cac]
+        if not cross.empty:
+            mx, my = cross.iloc[0]["month_num"], cross.iloc[0]["cumulative_arpu_net"]
+            fig.add_annotation(
+                x=mx, y=my, text=f"Break-even: {ctry} M{mx}",
+                showarrow=True, arrowhead=2, arrowcolor=color,
+                font=dict(color=color, size=11),
+                bgcolor="rgba(11,15,26,0.8)", bordercolor=color, borderwidth=1,
+            )
+    layout = dict(CHART_LAYOUT)
+    layout["xaxis"] = dict(CHART_LAYOUT["xaxis"], title="Month Number", tickmode="linear", dtick=1)
+    layout["yaxis"] = dict(CHART_LAYOUT["yaxis"], tickprefix="$")
+    layout["hovermode"] = "x unified"
+    fig.update_layout(**layout)
+    return fig
+
+
+# =============================================================================
+# -- Payback Period Figure --
+# Same data as break-even; filled area + vertical marker at crossover.
+# =============================================================================
+def payback_figure(df):
+    if df is None or df.empty:
+        return _empty_figure("No data available — try a wider date range")
+    fig = go.Figure()
+    for i, ctry in enumerate(df["country"].unique()):
+        c_df   = df[df["country"] == ctry].sort_values("month_num")
+        color  = ACCENT_COLORS[i % len(ACCENT_COLORS)]
+        cac    = c_df["avg_cac"].iloc[0]
+        x_nums = c_df["month_num"].tolist()
+        x_labs = c_df["month_label"].tolist()
+        try:
+            r, g, b = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
+            fill_c  = f"rgba({r},{g},{b},0.08)"
+        except Exception:
+            fill_c  = "rgba(108,124,255,0.08)"
+        fig.add_trace(go.Scatter(
+            x=x_nums, y=c_df["cumulative_arpu_net"],
+            mode="lines+markers", name=ctry,
+            fill="tozeroy", fillcolor=fill_c,
+            line=dict(color=color, width=2.5), marker=dict(size=5),
+            customdata=list(zip(x_labs, [cac]*len(x_nums))),
+            hovertemplate="<b>%{customdata[0]}</b><br>Recovered: $%{y:.2f}<br>CAC: $%{customdata[1]:.2f}<extra></extra>",
+        ))
+        fig.add_hline(y=cac, line_dash="dot", line_color=color, opacity=0.6,
+                      annotation_text=f"{ctry} CAC ${cac:.0f}", annotation_font_color=color)
+        cross = c_df[c_df["cumulative_arpu_net"] >= cac]
+        if not cross.empty:
+            mx = cross.iloc[0]["month_num"]
+            fig.add_vline(x=mx, line_dash="dash", line_color=color, opacity=0.5,
+                          annotation_text=f"{ctry}: Payback M{mx}", annotation_font_color=color)
+    layout = dict(CHART_LAYOUT)
+    layout["xaxis"] = dict(CHART_LAYOUT["xaxis"], title="Month Number", tickmode="linear", dtick=1)
+    layout["yaxis"] = dict(CHART_LAYOUT["yaxis"], tickprefix="$")
+    layout["hovermode"] = "x unified"
+    fig.update_layout(**layout)
+    return fig
+
+
+# =============================================================================
+# -- ROI Summary Cards --
+# Four KPI-style divs: 3m / 6m / 12m / Full LTV ROI.
+# =============================================================================
+def roi_summary_cards(roi_data: dict):
+    def _card(card_id, horizon, roi_val, ltv_val, cac_val):
+        positive = roi_val >= 0
+        color    = "#34D399" if positive else "#EF4444"
+        arrow    = "\u25b2" if positive else "\u25bc"
+        return html.Div(
+            id=f"roi-card-{card_id}",
+            className="kpi-card kpi-card--featured",
+            children=[
+                html.Div(className="kpi-card__header", children=[
+                    html.Span("\U0001f4c8" if positive else "\U0001f4c9", className="kpi-card__icon"),
+                    html.Span(f"{arrow} {abs(roi_val):.1f}%",
+                              className="delta-badge positive" if positive else "delta-badge negative"),
+                ]),
+                html.Div(f"{roi_val:+.1f}%", className="kpi-card__value", style={"color": color}),
+                html.Div(f"ROI — {horizon}", className="kpi-card__title"),
+                html.Div(f"LTV ${ltv_val:,.2f}  \xb7  CAC ${cac_val:,.2f}", className="kpi-card__subtitle"),
+            ],
+        )
+    cac = roi_data.get("avg_cac", 0)
+    return [
+        _card("3m",   "3 Months",  roi_data.get("roi_3m",   0), roi_data.get("ltv_3m",   0), cac),
+        _card("6m",   "6 Months",  roi_data.get("roi_6m",   0), roi_data.get("ltv_6m",   0), cac),
+        _card("12m",  "12 Months", roi_data.get("roi_12m",  0), roi_data.get("ltv_12m",  0), cac),
+        _card("full", "Full LTV",  roi_data.get("roi_full", 0), roi_data.get("ltv_full", 0), cac),
+    ]
+
+
+# =============================================================================
+# -- ROI Trend Figure --
+# Monthly line chart: 3m / 6m / 12m ROI over time.
+# =============================================================================
+def roi_trend_figure(trend_df):
+    if trend_df is None or trend_df.empty:
+        return _empty_figure("No monthly ROI trend data — try a wider date range")
+    fig = go.Figure()
+    for col, label, color in [
+        ("roi_3m",  "3-Month ROI",  "#6C7CFF"),
+        ("roi_6m",  "6-Month ROI",  "#A855F7"),
+        ("roi_12m", "12-Month ROI", "#34D399"),
+    ]:
+        if col not in trend_df.columns:
+            continue
+        fig.add_trace(go.Scatter(
+            x=trend_df["month"], y=trend_df[col],
+            mode="lines+markers", name=label,
+            line=dict(color=color, width=2), marker=dict(size=4),
+            hovertemplate=f"<b>{label}</b>: %{{y:+.1f}}%<extra></extra>",
+        ))
+    fig.add_hline(y=0, line_dash="dash", line_color="#6B7280", opacity=0.5,
+                  annotation_text="Break-even (0%)", annotation_font_color="#6B7280")
+    layout = dict(CHART_LAYOUT)
+    layout["yaxis"] = dict(CHART_LAYOUT["yaxis"], ticksuffix="%")
+    layout["hovermode"] = "x unified"
+    fig.update_layout(**layout)
+    return fig
+
+
+# =============================================================================
+# -- Business Break-Even Figure --
+# Cumulative proceeds vs. cumulative ad spend with intersection highlight.
+# =============================================================================
+def biz_breakeven_figure(df):
+    if df is None or df.empty:
+        return _empty_figure("No data available — try a wider date range")
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df["month"], y=df["cumulative_proceeds"],
+        mode="lines+markers", name="Cumulative Proceeds",
+        line=dict(color="#34D399", width=2.5), marker=dict(size=5),
+        fill="tozeroy", fillcolor="rgba(52,211,153,0.07)",
+        hovertemplate="<b>%{x|%b %Y}</b><br>Cum. Proceeds: $%{y:,.0f}<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=df["month"], y=df["cumulative_spend"],
+        mode="lines+markers", name="Cumulative Ad Spend",
+        line=dict(color="#EF4444", width=2.5), marker=dict(size=5),
+        fill="tozeroy", fillcolor="rgba(239,68,68,0.07)",
+        hovertemplate="<b>%{x|%b %Y}</b><br>Cum. Spend: $%{y:,.0f}<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=df["month"], y=df["net_position"],
+        mode="lines", name="Net Position (Proceeds \u2212 Spend)",
+        line=dict(color="#A855F7", width=1.5, dash="dot"),
+        hovertemplate="<b>%{x|%b %Y}</b><br>Net: $%{y:,.0f}<extra></extra>",
+    ))
+    fig.add_hline(y=0, line_dash="dash", line_color="#6B7280", opacity=0.4)
+    crossed = df[df["net_position"] >= 0]
+    if not crossed.empty:
+        bx = crossed.iloc[0]["month"]
+        fig.add_vline(
+            x=bx.timestamp() * 1000,
+            line_dash="dash", line_color="#A855F7", opacity=0.6,
+            annotation_text=f"Biz Break-Even: {bx.strftime('%b %Y')}",
+            annotation_font_color="#A855F7",
+        )
+    layout = dict(CHART_LAYOUT)
+    layout["yaxis"] = dict(CHART_LAYOUT["yaxis"], tickprefix="$")
+    layout["hovermode"] = "x unified"
+    fig.update_layout(**layout)
+    return fig
