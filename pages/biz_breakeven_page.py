@@ -13,10 +13,13 @@ Highlights the exact intersection month.
 """
 from dash import html, dcc
 from components import chart_card
-from .shared import page_header, page_tab_nav, page_footer, LTV_COUNTRY_OPTIONS
+from .shared import page_header, page_tab_nav, page_footer, LTV_COUNTRY_OPTIONS, _defaults
 
 
-def biz_breakeven_layout(default_start, default_end):
+def biz_breakeven_layout(default_start=None, default_end=None):
+    _start, _end = _defaults()
+    default_start = default_start or _start
+    default_end   = default_end   or _end
     controls = [
         dcc.Dropdown(
             id="filter-platform",

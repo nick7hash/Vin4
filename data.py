@@ -257,6 +257,7 @@ def _get_base_cohort_df(start_date, end_date) -> pd.DataFrame:
                 spend
             FROM `{COHORT_TABLE}`
             WHERE DATE(date) BETWEEN '{start_date}' AND '{end_date}'
+              AND country != 'Total'
         """
         try:
             df = client.query(q).to_dataframe()
@@ -453,6 +454,7 @@ def get_conversion_rate_data(start_date, end_date, country=None, platform=None) 
                 SUM(total_new_paid_subscriptions) AS total_new_paid_subscriptions
             FROM `{TABLE}`
             WHERE CAST(date AS DATE) BETWEEN '{start_date}' AND '{end_date}'
+              AND (rc_country != 'Total' OR rc_country IS NULL)
             GROUP BY date
             ORDER BY date
         """
@@ -770,13 +772,19 @@ def get_meta_roas_data(start_date, end_date) -> pd.DataFrame:
 # Calculates monthly cumulative net ARPU per user vs the average CAC.
 # Used by BOTH the Break-Even Point page and the Payback Period page.
 #
-# Logic:
-#   1. avg_cac  = total_spend / total_new_paid_subscriptions  (for the period)
-#   2. monthly_arpu_net = monthly_proceeds / end_of_month_active_subs
-#   3. cumulative_arpu_net = running total of monthly_arpu_net
-#   4. Break-even / payback = first month where cumulative_arpu_net >= avg_cac
+# Data source architecture (mrt_final_vinita table):
+#   ┌─────────────────────────────────────────────────────────────────┐
+#   │ Row type         │ rc_country │ spend>0 │ proceeds>0 │ subs>0  │
+#   ├──────────────────┼────────────┼─────────┼────────────┼─────────┤
+#   │ Adjust / Ads     │ NULL       │  YES    │    no      │  no     │
+#   │ RevenueCat (RC)  │ 'US'/'GB'  │  no     │   YES      │ YES     │
+#   └─────────────────────────────────────────────────────────────────┘
 #
-# One series is built per country so all countries appear in one chart.
+# Formula:
+#   avg_cac           = SUM(spend) [Adjust rows] / SUM(new_paid_subs) [RC rows]
+#   monthly_arpu_net  = monthly_proceeds / end_of_month_active_subs  [RC rows, per country]
+#   cumulative_arpu   = running cumsum of monthly_arpu_net
+#   Break-even month  = first month where cumulative_arpu >= avg_cac
 # =============================================================================
 def get_breakeven_data(start_date, end_date, country=None, platform=None) -> pd.DataFrame:
     df = _get_base_final_df(start_date, end_date)
@@ -786,45 +794,78 @@ def get_breakeven_data(start_date, end_date, country=None, platform=None) -> pd.
     s_dt, e_dt = pd.to_datetime(start_date), pd.to_datetime(end_date)
     df = df[(df['date'] >= s_dt) & (df['date'] <= e_dt)]
 
-    # Platform filter
+    # ─────────────────────────────────────────────────────────────────────────
+    # The mrt_final_vinita table has two distinct row types:
+    #   Adjust/Ads rows → rc_country IS NULL  → spend > 0,  proceeds = 0, subs = 0
+    #   RevenueCat rows → rc_country IS SET   → spend = 0,  proceeds > 0, subs > 0
+    # We must NOT filter spend by rc_country; split first, then work per-source.
+    # ─────────────────────────────────────────────────────────────────────────
+    adjust_df = df[df['rc_country'].isna()].copy()   # Ads/Adjust → spend lives here
+    rc_df     = df[df['rc_country'].notna()].copy()  # RevenueCat → RC metrics live here
+
+    # Platform filter: only applied to RC rows (rc_platform).
+    # Adjust rows have rc_platform=NULL; spend is tracked globally, not per platform.
     if platform and platform not in ('', 'All'):
-        df = df[df['rc_platform'] == platform]
+        rc_df = rc_df[rc_df['rc_platform'] == platform]
 
-    # Country scope: single country or all 4 standard countries
-    mapped_countries = list(COUNTRY_MAP.values())   # ['United States', ...]
-    if country and country not in ('', 'All', 'Total'):
-        c_mapped = COUNTRY_MAP.get(country, country)
-        df = df[df['rc_country'] == c_mapped]
-        countries_to_run = [c_mapped]
-    else:
-        df = df[df['rc_country'].isin(mapped_countries)]
-        countries_to_run = [c for c in mapped_countries if c in df['rc_country'].unique()]
+    # ── Global CAC ────────────────────────────────────────────────────────────
+    # spend     = Adjust (ads) rows — not tagged per rc_country
+    # new_subs  = RevenueCat rows  — sum across all countries
+    # → CAC is a single global number applied equally to every country series.
+    total_spend    = adjust_df['spend'].sum()
+    total_new_subs = rc_df['total_new_paid_subscriptions'].sum()
+    global_avg_cac = total_spend / total_new_subs if total_new_subs > 0 else 0
 
+    if global_avg_cac <= 0:
+        print(f"[data] get_breakeven_data: no CAC "
+              f"(spend={total_spend:.2f}, new_subs={total_new_subs:.0f})")
+        return pd.DataFrame()
+
+    # ── Country resolution (rc_country may be code 'US' or full 'United States') ──
+    code_to_name = COUNTRY_MAP                              # {'US': 'United States', ...}
+    name_to_code = {v: k for k, v in COUNTRY_MAP.items()}  # {'United States': 'US', ...}
+    all_rc_vals  = rc_df['rc_country'].unique().tolist()
+
+    def _resolve(requested):
+        if not requested or requested in ('', 'All', 'Total'):
+            return [v for v in all_rc_vals if v in code_to_name or v in name_to_code]
+        hits = set()
+        if requested in all_rc_vals:
+            hits.add(requested)
+        mapped = code_to_name.get(requested) or name_to_code.get(requested)
+        if mapped and mapped in all_rc_vals:
+            hits.add(mapped)
+        return list(hits)
+
+    rc_countries = _resolve(country)
+    if not rc_countries:
+        print(f"[data] get_breakeven_data: no RC rows for country={country!r}")
+        return pd.DataFrame()
+
+    # Canonical display label → always use full country name in charts
+    rc_df = rc_df[rc_df['rc_country'].isin(rc_countries)].copy()
+    rc_df['country_label'] = rc_df['rc_country'].map(
+        lambda rc: code_to_name.get(rc, rc)
+    )
+
+    # ── Monthly ARPU per country (RC data only) ───────────────────────────────
     results = []
-    for ctry in countries_to_run:
-        ctry_df = df[df['rc_country'] == ctry].copy()
+    for ctry_label, ctry_df in rc_df.groupby('country_label'):
+        ctry_df = ctry_df.copy()
         if ctry_df.empty:
             continue
 
-        # Average CAC for this country over the whole selected period
-        total_spend = ctry_df['spend'].sum()
-        total_new_subs = ctry_df['total_new_paid_subscriptions'].sum()
-        avg_cac = total_spend / total_new_subs if total_new_subs > 0 else 0
-        if avg_cac <= 0:
-            continue
-
-        # Monthly ARPU_net — match the pattern used by get_ltv_net_data
         ctry_df['month'] = ctry_df['date'].dt.to_period('M')
         monthly_rows = []
         for m, m_df in ctry_df.groupby('month'):
-            m_df_s = m_df.sort_values('date')
-            last_day = m_df_s['date'].max()
-            end_subs = m_df_s[m_df_s['date'] == last_day]['active_subscriptions'].sum()
-            monthly_proceeds = m_df_s['proceeds'].sum()
-            arpu_net = (monthly_proceeds / end_subs) if end_subs > 0 else 0
+            m_df_s     = m_df.sort_values('date')
+            last_day   = m_df_s['date'].max()
+            end_subs   = m_df_s[m_df_s['date'] == last_day]['active_subscriptions'].sum()
+            m_proceeds = m_df_s['proceeds'].sum()
+            arpu_net   = (m_proceeds / end_subs) if end_subs > 0 else 0
             monthly_rows.append({
-                'month': m,
-                'month_label': str(m),
+                'month':            m,
+                'month_label':      str(m),
                 'monthly_arpu_net': arpu_net,
             })
 
@@ -834,8 +875,8 @@ def get_breakeven_data(start_date, end_date, country=None, platform=None) -> pd.
         monthly = pd.DataFrame(monthly_rows).sort_values('month')
         monthly['cumulative_arpu_net'] = monthly['monthly_arpu_net'].cumsum()
         monthly['month_num'] = range(1, len(monthly) + 1)
-        monthly['country'] = ctry
-        monthly['avg_cac'] = avg_cac
+        monthly['country']   = ctry_label
+        monthly['avg_cac']   = global_avg_cac   # same global CAC applied to all countries
 
         results.append(monthly[['country', 'month_label', 'month_num',
                                  'monthly_arpu_net', 'cumulative_arpu_net', 'avg_cac']])

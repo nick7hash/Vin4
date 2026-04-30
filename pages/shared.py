@@ -9,6 +9,12 @@ HOW IT WORKS (beginner-friendly):
 
 from dash import html, dcc
 from datetime import date
+from data import get_default_dates as _get_default_dates
+
+
+def _defaults():
+    """Return (start_date, end_date) from the database, cached on first call."""
+    return _get_default_dates()
 
 # Standard list of countries used for filtering
 LTV_COUNTRY_OPTIONS = [

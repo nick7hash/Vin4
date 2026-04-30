@@ -112,16 +112,17 @@ dash_app.layout = html.Div(
 @dash_app.callback(Output("page-content", "children"), Input("url", "pathname"))
 def display_page(pathname):
     routes = {
-        "/cac":          lambda: cac_layout(_default_start, _default_end),
-        "/ltv":          lambda: ltv_layout(_default_start, _default_end),
-        "/roas":         lambda: roas_layout(),
-        "/facebook":     lambda: roas_layout(),   # legacy redirect
-        "/breakeven":    lambda: breakeven_layout(_default_start, _default_end),
-        "/payback":      lambda: payback_layout(_default_start, _default_end),
-        "/roi":          lambda: roi_layout(_default_start, _default_end),
-        "/biz-breakeven":lambda: biz_breakeven_layout(_default_start, _default_end),
+        "/cac":          cac_layout,
+        "/ltv":          ltv_layout,
+        "/roas":         roas_layout,
+        "/facebook":     roas_layout,   # legacy redirect
+        "/breakeven":    breakeven_layout,
+        "/payback":      payback_layout,
+        "/roi":          roi_layout,
+        "/biz-breakeven":biz_breakeven_layout,
     }
-    return routes.get(pathname, lambda: overview_layout(_default_start, _default_end))()
+    layout_fn = routes.get(pathname, overview_layout)
+    return layout_fn()
 
 # =============================================================================
 # SHARED CALLBACKS

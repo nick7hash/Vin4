@@ -10,10 +10,13 @@ Shows ROI across 4 horizons: 3m, 6m, 12m, Full LTV.
 """
 from dash import html, dcc
 from components import chart_card
-from .shared import page_header, page_tab_nav, page_footer, LTV_COUNTRY_OPTIONS
+from .shared import page_header, page_tab_nav, page_footer, LTV_COUNTRY_OPTIONS, _defaults
 
 
-def roi_layout(default_start, default_end):
+def roi_layout(default_start=None, default_end=None):
+    _start, _end = _defaults()
+    default_start = default_start or _start
+    default_end   = default_end   or _end
     controls = [
         dcc.Dropdown(
             id="filter-platform",
