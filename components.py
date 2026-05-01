@@ -346,9 +346,17 @@ def roas_figure(df):
     return fig
 
 # ── CAC Chart ────────────────────────────────────────────────────────────────
-def cac_figure(df):
+def cac_figure(df, granularity="Day"):
     if df.empty:
         return _empty_figure("No CAC data for this period")
+
+    df = df.copy().sort_values("date")
+    if granularity == "Month":
+        df = df.set_index("date").resample("ME").sum().reset_index()
+        df["cac"] = df.apply(lambda x: x['total_spend'] / x['total_new_paid_subscriptions'] if x['total_new_paid_subscriptions'] > 0 else 0, axis=1)
+    elif granularity == "Year":
+        df = df.set_index("date").resample("YE").sum().reset_index()
+        df["cac"] = df.apply(lambda x: x['total_spend'] / x['total_new_paid_subscriptions'] if x['total_new_paid_subscriptions'] > 0 else 0, axis=1)
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -370,9 +378,29 @@ def cac_figure(df):
 
 # ── CAC vs LTV Thresholds Chart ───────────────────────────────────────────────
 # Change 6: multi-line chart with CAC, LTV30d, Healthy (LTV/3), Aggressive (LTV/2)
-def cac_ltv_threshold_figure(df):
+def cac_ltv_threshold_figure(df, granularity="Day"):
     if df.empty:
         return _empty_figure("No data available for CAC vs LTV Thresholds")
+
+    df = df.copy().sort_values("date")
+    if granularity == "Month":
+        df = df.set_index("date").resample("ME").agg({
+            "spend": "sum",
+            "total_new_paid_subscriptions": "sum",
+            "ltv_30d": "mean"
+        }).reset_index()
+        df["cac"] = df.apply(lambda x: x['spend'] / x['total_new_paid_subscriptions'] if x['total_new_paid_subscriptions'] > 0 else 0, axis=1)
+        df['healthy_cac_threshold'] = df['ltv_30d'] / 3
+        df['aggressive_cac_threshold'] = df['ltv_30d'] / 2
+    elif granularity == "Year":
+        df = df.set_index("date").resample("YE").agg({
+            "spend": "sum",
+            "total_new_paid_subscriptions": "sum",
+            "ltv_30d": "mean"
+        }).reset_index()
+        df["cac"] = df.apply(lambda x: x['spend'] / x['total_new_paid_subscriptions'] if x['total_new_paid_subscriptions'] > 0 else 0, axis=1)
+        df['healthy_cac_threshold'] = df['ltv_30d'] / 3
+        df['aggressive_cac_threshold'] = df['ltv_30d'] / 2
 
     fig = go.Figure()
 
@@ -589,7 +617,7 @@ def breakeven_figure(df):
     for i, ctry in enumerate(df["country"].unique()):
         c_df   = df[df["country"] == ctry].sort_values("month_num")
         color  = ACCENT_COLORS[i % len(ACCENT_COLORS)]
-        cac    = c_df["avg_cac"].iloc[0]
+        c_cac  = c_df["avg_cac"].tolist()
         x_nums = c_df["month_num"].tolist()
         x_labs = c_df["month_label"].tolist()
         fig.add_trace(go.Scatter(
@@ -600,12 +628,13 @@ def breakeven_figure(df):
             hovertemplate="<b>%{customdata}</b><br>Cum. ARPU: $%{y:.2f}<extra></extra>",
         ))
         fig.add_trace(go.Scatter(
-            x=[x_nums[0], x_nums[-1]], y=[cac, cac],
-            mode="lines", name=f"{ctry} — CAC (${cac:.0f})",
+            x=x_nums, y=c_cac,
+            mode="lines", name=f"{ctry} — CAC",
             line=dict(color=color, width=1.5, dash="dash"),
-            hovertemplate=f"<b>{ctry} CAC</b>: ${cac:.2f}<extra></extra>",
+            customdata=x_labs,
+            hovertemplate="<b>%{customdata}</b><br>CAC: $%{y:.2f}<extra></extra>",
         ))
-        cross = c_df[c_df["cumulative_arpu_net"] >= cac]
+        cross = c_df[c_df["cumulative_arpu_net"] >= c_df["avg_cac"]]
         if not cross.empty:
             mx, my = cross.iloc[0]["month_num"], cross.iloc[0]["cumulative_arpu_net"]
             fig.add_annotation(
@@ -633,7 +662,7 @@ def payback_figure(df):
     for i, ctry in enumerate(df["country"].unique()):
         c_df   = df[df["country"] == ctry].sort_values("month_num")
         color  = ACCENT_COLORS[i % len(ACCENT_COLORS)]
-        cac    = c_df["avg_cac"].iloc[0]
+        c_cac  = c_df["avg_cac"].tolist()
         x_nums = c_df["month_num"].tolist()
         x_labs = c_df["month_label"].tolist()
         try:
@@ -646,12 +675,17 @@ def payback_figure(df):
             mode="lines+markers", name=ctry,
             fill="tozeroy", fillcolor=fill_c,
             line=dict(color=color, width=2.5), marker=dict(size=5),
-            customdata=list(zip(x_labs, [cac]*len(x_nums))),
+            customdata=list(zip(x_labs, c_cac)),
             hovertemplate="<b>%{customdata[0]}</b><br>Recovered: $%{y:.2f}<br>CAC: $%{customdata[1]:.2f}<extra></extra>",
         ))
-        fig.add_hline(y=cac, line_dash="dot", line_color=color, opacity=0.6,
-                      annotation_text=f"{ctry} CAC ${cac:.0f}", annotation_font_color=color)
-        cross = c_df[c_df["cumulative_arpu_net"] >= cac]
+        fig.add_trace(go.Scatter(
+            x=x_nums, y=c_cac,
+            mode="lines", name=f"{ctry} CAC",
+            line=dict(color=color, width=1.5, dash="dot"),
+            customdata=x_labs,
+            hovertemplate="<b>%{customdata}</b><br>CAC: $%{y:.2f}<extra></extra>",
+        ))
+        cross = c_df[c_df["cumulative_arpu_net"] >= c_df["avg_cac"]]
         if not cross.empty:
             mx = cross.iloc[0]["month_num"]
             fig.add_vline(x=mx, line_dash="dash", line_color=color, opacity=0.5,

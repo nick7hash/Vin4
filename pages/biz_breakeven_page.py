@@ -18,8 +18,8 @@ from .shared import page_header, page_tab_nav, page_footer, LTV_COUNTRY_OPTIONS,
 
 def biz_breakeven_layout(default_start=None, default_end=None):
     _start, _end = _defaults()
-    default_start = default_start or _start
-    default_end   = default_end   or _end
+    default_start = default_start or "2025-01-01"
+    default_end   = default_end   or "2025-12-31"
     controls = [
         dcc.Dropdown(
             id="filter-platform",

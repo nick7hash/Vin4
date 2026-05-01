@@ -219,7 +219,7 @@ def _get_base_final_df(start_date, end_date) -> pd.DataFrame:
             SELECT
                 CAST(date AS DATE) AS date,
                 rc_country,
-                rc_platform,
+                COALESCE(rc_platform, platform) AS rc_platform,
                 SUM(gross_revenue) AS gross_revenue,
                 SUM(proceeds) AS proceeds,
                 SUM(spend) AS spend,
@@ -527,7 +527,7 @@ def get_cac_ltv_thresholds(start_date, end_date, country=None, platform=None) ->
     ltv_agg = ltv_agg.rename(columns={'realized_ltv_30d': 'ltv_30d'})
     
     # Merge
-    merged = pd.merge(cac_agg[['date', 'cac']], ltv_agg[['date', 'ltv_30d']], on='date', how='inner')
+    merged = pd.merge(cac_agg[['date', 'spend', 'total_new_paid_subscriptions', 'cac']], ltv_agg[['date', 'ltv_30d']], on='date', how='inner')
     merged = merged[(merged['cac'] >= 0) & (merged['ltv_30d'] > 0)].copy()
     
     merged['healthy_cac_threshold'] = merged['ltv_30d'] / 3
@@ -803,22 +803,33 @@ def get_breakeven_data(start_date, end_date, country=None, platform=None) -> pd.
     adjust_df = df[df['rc_country'].isna()].copy()   # Ads/Adjust → spend lives here
     rc_df     = df[df['rc_country'].notna()].copy()  # RevenueCat → RC metrics live here
 
-    # Platform filter: only applied to RC rows (rc_platform).
-    # Adjust rows have rc_platform=NULL; spend is tracked globally, not per platform.
+    # Platform filter: applied to BOTH Adjust rows (spend) and RC rows (proceeds)
     if platform and platform not in ('', 'All'):
         rc_df = rc_df[rc_df['rc_platform'] == platform]
+        adjust_df = adjust_df[adjust_df['rc_platform'] == platform]
 
-    # ── Global CAC ────────────────────────────────────────────────────────────
-    # spend     = Adjust (ads) rows — not tagged per rc_country
-    # new_subs  = RevenueCat rows  — sum across all countries
-    # → CAC is a single global number applied equally to every country series.
-    total_spend    = adjust_df['spend'].sum()
-    total_new_subs = rc_df['total_new_paid_subscriptions'].sum()
-    global_avg_cac = total_spend / total_new_subs if total_new_subs > 0 else 0
+    # ── Per-Month CAC ─────────────────────────────────────────────────────────
+    # Option B: compute CAC per calendar month so the dashed line on the chart
+    # reflects the actual spend efficiency of each individual month instead of
+    # a flat global average across the entire date range.
+    adjust_df = adjust_df.copy()
+    rc_df_all = df[df['rc_country'].notna()].copy()  # all RC rows (unfiltered by country) for subs
+    if platform and platform not in ('', 'All'):
+        rc_df_all = rc_df_all[rc_df_all['rc_platform'] == platform]
 
-    if global_avg_cac <= 0:
-        print(f"[data] get_breakeven_data: no CAC "
-              f"(spend={total_spend:.2f}, new_subs={total_new_subs:.0f})")
+    adjust_df['month'] = adjust_df['date'].dt.to_period('M')
+    rc_df_all['month'] = rc_df_all['date'].dt.to_period('M')
+
+    monthly_spend_s    = adjust_df.groupby('month')['spend'].sum()
+    monthly_new_subs_s = rc_df_all.groupby('month')['total_new_paid_subscriptions'].sum()
+
+    # Monthly CAC series: spend / new_subs per month; fallback to 0 if no subs
+    monthly_cac_s = (monthly_spend_s / monthly_new_subs_s.replace(0, pd.NA)).fillna(0)
+
+    # Sanity check: if we have no spend at all, return empty
+    total_spend = float(adjust_df['spend'].sum())
+    if total_spend <= 0:
+        print(f"[data] get_breakeven_data: no spend found")
         return pd.DataFrame()
 
     # ── Country resolution (rc_country may be code 'US' or full 'United States') ──
@@ -863,10 +874,13 @@ def get_breakeven_data(start_date, end_date, country=None, platform=None) -> pd.
             end_subs   = m_df_s[m_df_s['date'] == last_day]['active_subscriptions'].sum()
             m_proceeds = m_df_s['proceeds'].sum()
             arpu_net   = (m_proceeds / end_subs) if end_subs > 0 else 0
+            # Per-month CAC: look up from monthly_cac_s; fallback to 0
+            cac_month  = float(monthly_cac_s.get(m, 0))
             monthly_rows.append({
                 'month':            m,
                 'month_label':      str(m),
                 'monthly_arpu_net': arpu_net,
+                'monthly_cac':      cac_month,
             })
 
         if not monthly_rows:
@@ -876,7 +890,7 @@ def get_breakeven_data(start_date, end_date, country=None, platform=None) -> pd.
         monthly['cumulative_arpu_net'] = monthly['monthly_arpu_net'].cumsum()
         monthly['month_num'] = range(1, len(monthly) + 1)
         monthly['country']   = ctry_label
-        monthly['avg_cac']   = global_avg_cac   # same global CAC applied to all countries
+        monthly['avg_cac']   = monthly['monthly_cac']   # ← per-month CAC, not a flat global
 
         results.append(monthly[['country', 'month_label', 'month_num',
                                  'monthly_arpu_net', 'cumulative_arpu_net', 'avg_cac']])

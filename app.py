@@ -308,21 +308,46 @@ def update_overview_charts(start, end, country, platform, _):
     Input("filter-dates",    "end_date"),
     Input("filter-country",  "value"),
     Input("filter-platform", "value"),
+    Input("store-gran-cac",  "data"),
     Input("interval",        "n_intervals"),
     prevent_initial_call=False,
 )
-def update_cac_charts(start, end, country, platform, _):
+def update_cac_charts(start, end, country, platform, gran_data, _):
     if not start or not end:
         start, end = str(_default_start), str(_default_end)
+    gran = gran_data.get("cac", "Day") if gran_data else "Day"
     try:
-        cac_fig = cac_figure(get_cac_data(start, end, country, platform))
+        cac_fig = cac_figure(get_cac_data(start, end, country, platform), gran)
     except Exception as e:
         print(f"[app] cac: {e}"); cac_fig = _empty_figure("CAC error")
     try:
-        clt_fig = cac_ltv_threshold_figure(get_cac_ltv_thresholds(start, end, country, platform))
+        clt_fig = cac_ltv_threshold_figure(get_cac_ltv_thresholds(start, end, country, platform), gran)
     except Exception as e:
         print(f"[app] cac_ltv: {e}"); clt_fig = _empty_figure("Threshold error")
     return cac_fig, clt_fig
+
+@dash_app.callback(
+    Output("store-gran-cac", "data"),
+    Output("gran-cac-level", "children"),
+    Input("gran-cac-up", "n_clicks"),
+    Input("gran-cac-down", "n_clicks"),
+    State("store-gran-cac", "data"),
+    prevent_initial_call=True,
+)
+def handle_cac_drilldown(up, down, current_gran):
+    ctx = callback_context
+    levels = ["Day", "Month", "Year"]
+    gran = (current_gran or {"cac": "Day"}).copy()
+    if not ctx.triggered:
+        return gran, gran.get("cac", "Day")
+    btn = ctx.triggered[0]["prop_id"].split(".")[0]
+    idx = levels.index(gran.get("cac", "Day"))
+    if btn == "gran-cac-up":
+        idx = min(len(levels)-1, idx+1)
+    elif btn == "gran-cac-down":
+        idx = max(0, idx-1)
+    gran["cac"] = levels[idx]
+    return gran, gran["cac"]
 
 # =============================================================================
 # LTV PAGE CALLBACKS

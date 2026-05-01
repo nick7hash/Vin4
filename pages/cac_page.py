@@ -1,5 +1,5 @@
 from dash import html, dcc
-from components import chart_card
+from components import chart_card, drilldown_control
 from .shared import page_header, page_tab_nav, page_footer, LTV_COUNTRY_OPTIONS, _defaults
 
 def cac_layout(default_start=None, default_end=None):
@@ -49,6 +49,7 @@ def cac_layout(default_start=None, default_end=None):
     return html.Div(
         className="app-shell",
         children=[
+            dcc.Store(id="store-gran-cac", data={"cac": "Day"}),
             dcc.Interval(id="interval", interval=300_000, n_intervals=0),
 
             page_header(controls=controls),
@@ -59,11 +60,13 @@ def cac_layout(default_start=None, default_end=None):
                 dcc.Loading(type="default", color="#4B5563", children=[
                     html.Div("Customer Acquisition Cost (CAC)", className="section-label"),
                     
-                    html.Div(className="chart-row", children=[
+                    html.Div(className="chart-stack", children=[
                         chart_card(
                             title="CAC Over Time",
                             graph_id="chart-cac",
+                            controls=drilldown_control("gran-cac", current_level="Day"),
                         ),
+                        html.Div(style={"height": "24px"}), # Spacer
                         chart_card(
                             title="CAC vs LTV Thresholds",
                             graph_id="chart-cac-ltv",
