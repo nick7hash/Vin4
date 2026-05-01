@@ -13,7 +13,8 @@ from data import (
     get_conversion_rate_data, get_monthly_churn, get_cohort_ltv_data,
     get_roas_data, get_cac_data, get_cac_ltv_thresholds, get_ltv_net_data,
     get_true_roas_data, get_facebook_kpi_data, get_meta_roas_data,
-    get_breakeven_data, get_roi_data, get_biz_breakeven_data,
+    get_breakeven_data, get_breakeven_cohort_data, get_breakeven_cohort_options,
+    get_roi_data, get_biz_breakeven_data,
 )
 from components import (
     kpi_card, chart_card, granularity_control, drilldown_control,
@@ -141,6 +142,30 @@ def load_dropdowns(_):
     except Exception as e:
         print(f"[app] load_dropdowns: {e}")
         return []
+
+
+@dash_app.callback(
+    Output("filter-cohort", "options"),
+    Output("filter-cohort", "value"),
+    Input("filter-dates",    "start_date"),
+    Input("filter-dates",    "end_date"),
+    Input("filter-country",  "value"),
+    Input("filter-platform", "value"),
+    Input("interval",        "n_intervals"),
+    State("filter-cohort",   "value"),
+    prevent_initial_call=False,
+)
+def load_cohort_dropdown(start, end, country, platform, _, current_value):
+    if not start or not end:
+        start, end = str(_default_start), str(_default_end)
+    try:
+        options = get_breakeven_cohort_options(start, end, country, platform)
+        valid_values = {o.get("value") for o in options}
+        value = current_value if current_value in valid_values else None
+        return options, value
+    except Exception as e:
+        print(f"[app] load_cohort_dropdown: {e}")
+        return [], None
 
 # =============================================================================
 # OVERVIEW PAGE CALLBACKS
@@ -484,14 +509,15 @@ def update_true_roas(start, end, platform, drill_store, roas_type, _):
     Input("filter-dates",    "end_date"),
     Input("filter-country",  "value"),
     Input("filter-platform", "value"),
+    Input("filter-cohort",   "value"),
     Input("interval",        "n_intervals"),
     prevent_initial_call=False,
 )
-def update_breakeven(start, end, country, platform, _):
+def update_breakeven(start, end, country, platform, cohort, _):
     if not start or not end:
         start, end = str(_default_start), str(_default_end)
     try:
-        return breakeven_figure(get_breakeven_data(start, end, country, platform))
+        return breakeven_figure(get_breakeven_cohort_data(start, end, country, platform, cohort))
     except Exception as e:
         print(f"[app] breakeven: {e}"); return _empty_figure(f"Error: {e}")
 

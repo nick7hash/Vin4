@@ -1,13 +1,13 @@
 """
 pages/breakeven_page.py — Break-Even Point page.
 
-Visualises the point where cumulative net ARPU per user crosses the avg CAC.
+Visualises the point where cumulative cohort revenue per user crosses CAC.
 
   Line 1 (dashed): Flat horizontal = CAC (constant cost to acquire a user)
-  Line 2 (solid):  Rising cumulative net ARPU (how much each user has paid back)
+  Line 2 (solid):  Rising cumulative cohort net revenue per user
   Intersection:    Break-even month (annotated per country)
 
-Filters: country, platform, date range.
+Filters: country, platform, cohort month, date range.
 """
 from dash import html, dcc
 from components import chart_card
@@ -32,6 +32,12 @@ def breakeven_layout(default_start=None, default_end=None):
             placeholder="Country…", className="country-dropdown",
             style={"width": "200px", "fontSize": "12.5px", "fontFamily": "Inter, sans-serif"},
         ),
+        dcc.Dropdown(
+            id="filter-cohort",
+            options=[], value=None, clearable=True, searchable=True,
+            placeholder="Cohort month…", className="country-dropdown",
+            style={"width": "180px", "fontSize": "12.5px", "fontFamily": "Inter, sans-serif"},
+        ),
         dcc.DatePickerRange(
             id="filter-dates",
             min_date_allowed="2020-01-01", max_date_allowed="2026-12-31",
@@ -54,13 +60,13 @@ def breakeven_layout(default_start=None, default_end=None):
                     html.Div("Break-Even Point", className="section-label"),
                     html.Div(
                         [
-                            html.Strong("Formula: "),
-                            "Break-Even Month = first month where Cumulative Net ARPU ≥ Avg CAC",
+                            html.Strong("Simple view: "),
+                            "Break-Even = first month where cumulative proceeds per user crosses CAC.",
                             html.Br(),
                             html.Span(
-                                "Dashed line = CAC (flat).  "
-                                "Solid line = cumulative net proceeds per user (rising).  "
-                                "All countries plotted together.",
+                                "Example: CAC = $40, ARPU (net) = $14/month, churn = 10%.  "
+                                "Month 1 = $14, Month 2 = $27, Month 3 = $38, Month 4 = $47 (break-even).  "
+                                "After Month 4, proceeds are profit.",
                                 style={"color": "#6B7280"},
                             ),
                         ],
@@ -68,7 +74,7 @@ def breakeven_layout(default_start=None, default_end=None):
                                "color": "#9CA3AF", "marginBottom": "16px"},
                     ),
                     chart_card(
-                        title="Break-Even Point — CAC vs Cumulative Net ARPU per User",
+                        title="Break-Even Point — Cohort CAC vs Cumulative Revenue/User",
                         graph_id="chart-breakeven",
                         height=420,
                     ),

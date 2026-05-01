@@ -901,6 +901,141 @@ def get_breakeven_data(start_date, end_date, country=None, platform=None) -> pd.
 
 
 # =============================================================================
+# ── Break-Even Cohort Curve Data ──
+# Cohort-based payback curve that accounts for retention/churn.
+# =============================================================================
+def get_breakeven_cohort_data(start_date, end_date, country=None, platform=None, cohort=None) -> pd.DataFrame:
+    df = _get_base_final_df(start_date, end_date)
+    if df.empty:
+        return pd.DataFrame()
+
+    s_dt, e_dt = pd.to_datetime(start_date), pd.to_datetime(end_date)
+    df = df[(df['date'] >= s_dt) & (df['date'] <= e_dt)].copy()
+    if df.empty:
+        return pd.DataFrame()
+
+    adjust_df = df[df['rc_country'].isna()].copy()
+    rc_df = df[df['rc_country'].notna()].copy()
+
+    if platform and platform not in ('', 'All'):
+        adjust_df = adjust_df[adjust_df['rc_platform'] == platform]
+        rc_df = rc_df[rc_df['rc_platform'] == platform]
+
+    if adjust_df.empty or rc_df.empty:
+        return pd.DataFrame()
+
+    # CAC per acquisition month: spend/new paid users.
+    adjust_df['month'] = adjust_df['date'].dt.to_period('M')
+    rc_df['month'] = rc_df['date'].dt.to_period('M')
+    monthly_spend_s = adjust_df.groupby('month')['spend'].sum()
+    monthly_new_subs_s = rc_df.groupby('month')['total_new_paid_subscriptions'].sum()
+    monthly_cac_s = (monthly_spend_s / monthly_new_subs_s.replace(0, pd.NA)).fillna(0)
+
+    code_to_name = COUNTRY_MAP
+    name_to_code = {v: k for k, v in COUNTRY_MAP.items()}
+    rc_df['country_label'] = rc_df['rc_country'].map(lambda c: code_to_name.get(c, c))
+
+    if country and country not in ('', 'All', 'Total'):
+        c_as_name = code_to_name.get(country, country)
+        c_as_code = name_to_code.get(country, country)
+        rc_df = rc_df[rc_df['rc_country'].isin([country, c_as_name, c_as_code]) | rc_df['country_label'].isin([country, c_as_name])]
+    if rc_df.empty:
+        return pd.DataFrame()
+
+    # Optional cohort filter; expected format: YYYY-MM
+    cohort_period = None
+    if cohort and cohort not in ('', 'All'):
+        try:
+            cohort_period = pd.Period(cohort, freq='M')
+        except Exception:
+            cohort_period = None
+
+    # Monthly country metrics used for cohort proceeds per user curve.
+    metrics_rows = []
+    for (ctry_label, month), m_df in rc_df.groupby(['country_label', 'month']):
+        m_df_s = m_df.sort_values('date')
+        last_day = m_df_s['date'].max()
+        end_subs = float(m_df_s[m_df_s['date'] == last_day]['active_subscriptions'].sum())
+        proceeds = float(m_df_s['proceeds'].sum())
+        churned = float(m_df_s['churned_active'].sum())
+        arpu = (proceeds / end_subs) if end_subs > 0 else 0.0
+        churn_rate = (churned / end_subs) if end_subs > 0 else 0.0
+        churn_rate = max(0.0, min(1.0, churn_rate))
+        metrics_rows.append({
+            'country': ctry_label,
+            'month': month,
+            'monthly_arpu': arpu,
+            'monthly_churn_rate': churn_rate,
+        })
+    metrics_df = pd.DataFrame(metrics_rows)
+    if metrics_df.empty:
+        return pd.DataFrame()
+
+    # Cohort sizes by acquisition month and country.
+    cohort_subs = (
+        rc_df.groupby(['country_label', 'month'], as_index=False)['total_new_paid_subscriptions']
+        .sum()
+        .rename(columns={'country_label': 'country', 'month': 'cohort_month', 'total_new_paid_subscriptions': 'cohort_new_subs'})
+    )
+    cohort_subs = cohort_subs[cohort_subs['cohort_new_subs'] > 0].copy()
+    if cohort_period is not None:
+        cohort_subs = cohort_subs[cohort_subs['cohort_month'] == cohort_period]
+    if cohort_subs.empty:
+        return pd.DataFrame()
+
+    max_month = rc_df['month'].max()
+    results = []
+    for _, row in cohort_subs.iterrows():
+        ctry = row['country']
+        c_month = row['cohort_month']
+        cohort_label = c_month.to_timestamp().strftime("%b %Y")
+        cac = float(monthly_cac_s.get(c_month, 0))
+
+        c_metrics = metrics_df[metrics_df['country'] == ctry].set_index('month')
+        months = pd.period_range(c_month, max_month, freq='M')
+
+        cumulative_revenue = 0.0
+        for idx, m in enumerate(months, start=1):
+            m_arpu = float(c_metrics.at[m, 'monthly_arpu']) if m in c_metrics.index else 0.0
+            m_churn = float(c_metrics.at[m, 'monthly_churn_rate']) if m in c_metrics.index else 0.0
+            # Simple business view:
+            # proceeds per acquired user each month = monthly ARPU (net),
+            # cumulative proceeds = running sum of monthly ARPU.
+            monthly_revenue_per_user = m_arpu
+            cumulative_revenue += monthly_revenue_per_user
+            results.append({
+                'country': ctry,
+                'cohort_value': str(c_month),
+                'cohort_label': cohort_label,
+                'calendar_month': str(m),
+                'month_index': idx,
+                'active_users': 1.0,
+                'monthly_arpu': m_arpu,
+                'monthly_churn_rate': m_churn,
+                'monthly_revenue_per_user': monthly_revenue_per_user,
+                'cumulative_revenue_per_user': cumulative_revenue,
+                'cac': cac,
+            })
+
+    if not results:
+        return pd.DataFrame()
+    return pd.DataFrame(results)
+
+
+def get_breakeven_cohort_options(start_date, end_date, country=None, platform=None):
+    df = get_breakeven_cohort_data(start_date, end_date, country=country, platform=platform)
+    if df.empty:
+        return []
+    cohorts = (
+        df[['cohort_value', 'cohort_label']]
+        .drop_duplicates()
+        .sort_values('cohort_value')
+        .to_dict('records')
+    )
+    return [{'label': c['cohort_label'], 'value': c['cohort_value']} for c in cohorts]
+
+
+# =============================================================================
 # ── ROI Data ──
 # Returns both a scalar summary dict AND a monthly trend DataFrame.
 #

@@ -1,12 +1,13 @@
 """
 pages/payback_page.py — Payback Period page.
 
-Shows when cumulative net proceeds per acquired user cross the avg CAC.
+Monthly performance tracking view:
+  - Bars: CAC
+  - Line: Monthly ARPU (net)
+  - Optional line: Payback period in days
 
-  Formula: Payback Period = first month where cumulative ARPU_net >= CAC
-  Special case: if annual plan net proceeds > CAC on month 1 → Payback = Day 1
-
-Filled area chart with vertical marker at the exact payback month per country.
+Formula:
+  Payback Days = (CAC / Monthly ARPU) * 30
 """
 from dash import html, dcc
 from components import chart_card
@@ -54,12 +55,13 @@ def payback_layout(default_start=None, default_end=None):
                     html.Div(
                         [
                             html.Strong("Formula: "),
-                            "Payback Period = CAC ÷ Monthly Net ARPU",
+                            "Payback Days = (CAC ÷ Monthly Net ARPU) × 30",
                             html.Br(),
                             html.Span(
                                 "Uses net proceeds (after platform fees).  "
-                                "Dotted line = CAC threshold.  "
-                                "Vertical marker = month when CAC is fully recovered.",
+                                "Bars = CAC.  "
+                                "Solid line = Monthly ARPU.  "
+                                "Optional dotted line (legend toggle) = Payback Days.",
                                 style={"color": "#6B7280"},
                             ),
                         ],
@@ -67,7 +69,7 @@ def payback_layout(default_start=None, default_end=None):
                                "color": "#9CA3AF", "marginBottom": "16px"},
                     ),
                     chart_card(
-                        title="Payback Period — Cumulative Net ARPU vs CAC",
+                        title="Payback Period — Monthly CAC vs ARPU",
                         graph_id="chart-payback",
                         height=420,
                     ),

@@ -614,37 +614,53 @@ def breakeven_figure(df):
     if df is None or df.empty:
         return _empty_figure("No data available — try a wider date range")
     fig = go.Figure()
-    for i, ctry in enumerate(df["country"].unique()):
-        c_df   = df[df["country"] == ctry].sort_values("month_num")
-        color  = ACCENT_COLORS[i % len(ACCENT_COLORS)]
-        c_cac  = c_df["avg_cac"].tolist()
-        x_nums = c_df["month_num"].tolist()
-        x_labs = c_df["month_label"].tolist()
+    groups_df = df[["country", "cohort_label", "cohort_value"]].drop_duplicates()
+    groups_df = groups_df.sort_values(["cohort_value", "country"], ascending=[False, True])
+    groups = groups_df.to_dict("records")
+    for i, grp in enumerate(groups):
+        ctry = grp["country"]
+        cohort_label = grp["cohort_label"]
+        c_df = df[(df["country"] == ctry) & (df["cohort_label"] == cohort_label)].sort_values("month_index")
+        color = ACCENT_COLORS[i % len(ACCENT_COLORS)]
+        x_nums = c_df["month_index"].tolist()
+        c_cac = [float(c_df["cac"].iloc[0])] * len(x_nums)
+        custom = c_df["calendar_month"].tolist()
+        is_primary = (i == 0)
+        trace_visibility = True if is_primary else "legendonly"
+
         fig.add_trace(go.Scatter(
-            x=x_nums, y=c_df["cumulative_arpu_net"],
-            mode="lines+markers", name=f"{ctry} — Cum. ARPU",
+            x=x_nums, y=c_df["cumulative_revenue_per_user"],
+            mode="lines+markers", name=f"{ctry} {cohort_label} — Cumulative Revenue",
             line=dict(color=color, width=2.5), marker=dict(size=5),
-            customdata=x_labs,
-            hovertemplate="<b>%{customdata}</b><br>Cum. ARPU: $%{y:.2f}<extra></extra>",
+            visible=trace_visibility,
+            customdata=custom,
+            hovertemplate=(
+                "<b>%{customdata}</b><br>"
+                "Cumulative Proceeds/User: $%{y:.2f}"
+                "<extra></extra>"
+            ),
         ))
         fig.add_trace(go.Scatter(
             x=x_nums, y=c_cac,
-            mode="lines", name=f"{ctry} — CAC",
+            mode="lines", name=f"{ctry} {cohort_label} — CAC",
             line=dict(color=color, width=1.5, dash="dash"),
-            customdata=x_labs,
+            visible=trace_visibility,
+            customdata=c_df["calendar_month"].tolist(),
             hovertemplate="<b>%{customdata}</b><br>CAC: $%{y:.2f}<extra></extra>",
         ))
-        cross = c_df[c_df["cumulative_arpu_net"] >= c_df["avg_cac"]]
-        if not cross.empty:
-            mx, my = cross.iloc[0]["month_num"], cross.iloc[0]["cumulative_arpu_net"]
+
+        cross = c_df[c_df["cumulative_revenue_per_user"] >= c_df["cac"]]
+        if is_primary and not cross.empty:
+            mx = int(cross.iloc[0]["month_index"])
+            my = float(cross.iloc[0]["cumulative_revenue_per_user"])
             fig.add_annotation(
-                x=mx, y=my, text=f"Break-even: {ctry} M{mx}",
+                x=mx, y=my, text=f"Break-even: {ctry} {cohort_label} M{mx}",
                 showarrow=True, arrowhead=2, arrowcolor=color,
                 font=dict(color=color, size=11),
                 bgcolor="rgba(11,15,26,0.8)", bordercolor=color, borderwidth=1,
             )
     layout = dict(CHART_LAYOUT)
-    layout["xaxis"] = dict(CHART_LAYOUT["xaxis"], title="Month Number", tickmode="linear", dtick=1)
+    layout["xaxis"] = dict(CHART_LAYOUT["xaxis"], title="Month Since Acquisition", tickmode="linear", dtick=1)
     layout["yaxis"] = dict(CHART_LAYOUT["yaxis"], tickprefix="$")
     layout["hovermode"] = "x unified"
     fig.update_layout(**layout)
@@ -653,46 +669,80 @@ def breakeven_figure(df):
 
 # =============================================================================
 # -- Payback Period Figure --
-# Same data as break-even; filled area + vertical marker at crossover.
+# Monthly performance view: CAC bars + ARPU line + optional Payback Days line.
+# Payback Days = (CAC / Monthly Net ARPU) * 30
 # =============================================================================
 def payback_figure(df):
     if df is None or df.empty:
         return _empty_figure("No data available — try a wider date range")
+
     fig = go.Figure()
     for i, ctry in enumerate(df["country"].unique()):
-        c_df   = df[df["country"] == ctry].sort_values("month_num")
-        color  = ACCENT_COLORS[i % len(ACCENT_COLORS)]
-        c_cac  = c_df["avg_cac"].tolist()
-        x_nums = c_df["month_num"].tolist()
+        c_df = df[df["country"] == ctry].sort_values("month_num").copy()
+        if c_df.empty:
+            continue
+
+        color = ACCENT_COLORS[i % len(ACCENT_COLORS)]
+        c_df["payback_days"] = c_df.apply(
+            lambda row: ((row["avg_cac"] / row["monthly_arpu_net"]) * 30)
+            if row["monthly_arpu_net"] and row["monthly_arpu_net"] > 0 else None,
+            axis=1,
+        )
+
         x_labs = c_df["month_label"].tolist()
-        try:
-            r, g, b = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
-            fill_c  = f"rgba({r},{g},{b},0.08)"
-        except Exception:
-            fill_c  = "rgba(108,124,255,0.08)"
-        fig.add_trace(go.Scatter(
-            x=x_nums, y=c_df["cumulative_arpu_net"],
-            mode="lines+markers", name=ctry,
-            fill="tozeroy", fillcolor=fill_c,
-            line=dict(color=color, width=2.5), marker=dict(size=5),
-            customdata=list(zip(x_labs, c_cac)),
-            hovertemplate="<b>%{customdata[0]}</b><br>Recovered: $%{y:.2f}<br>CAC: $%{customdata[1]:.2f}<extra></extra>",
+        custom = list(zip(c_df["monthly_arpu_net"], c_df["payback_days"]))
+
+        fig.add_trace(go.Bar(
+            x=x_labs,
+            y=c_df["avg_cac"],
+            name=f"{ctry} CAC",
+            marker_color=color,
+            opacity=0.55,
+            customdata=custom,
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "CAC: $%{y:.2f}<br>"
+                "Monthly ARPU: $%{customdata[0]:.2f}<br>"
+                "Payback: %{customdata[1]:.1f} days"
+                "<extra></extra>"
+            ),
         ))
+
         fig.add_trace(go.Scatter(
-            x=x_nums, y=c_cac,
-            mode="lines", name=f"{ctry} CAC",
-            line=dict(color=color, width=1.5, dash="dot"),
-            customdata=x_labs,
-            hovertemplate="<b>%{customdata}</b><br>CAC: $%{y:.2f}<extra></extra>",
+            x=x_labs,
+            y=c_df["monthly_arpu_net"],
+            mode="lines+markers",
+            name=f"{ctry} ARPU",
+            line=dict(color=color, width=2.5),
+            marker=dict(size=5),
+            hovertemplate="<b>%{x}</b><br>Monthly ARPU: $%{y:.2f}<extra></extra>",
         ))
-        cross = c_df[c_df["cumulative_arpu_net"] >= c_df["avg_cac"]]
-        if not cross.empty:
-            mx = cross.iloc[0]["month_num"]
-            fig.add_vline(x=mx, line_dash="dash", line_color=color, opacity=0.5,
-                          annotation_text=f"{ctry}: Payback M{mx}", annotation_font_color=color)
+
+        # Optional payback-days line on secondary y-axis (hidden by default).
+        fig.add_trace(go.Scatter(
+            x=x_labs,
+            y=c_df["payback_days"],
+            mode="lines+markers",
+            name=f"{ctry} Payback (days)",
+            visible="legendonly",
+            yaxis="y2",
+            line=dict(color=color, width=1.75, dash="dot"),
+            marker=dict(size=4),
+            hovertemplate="<b>%{x}</b><br>Payback: %{y:.1f} days<extra></extra>",
+        ))
+
     layout = dict(CHART_LAYOUT)
-    layout["xaxis"] = dict(CHART_LAYOUT["xaxis"], title="Month Number", tickmode="linear", dtick=1)
-    layout["yaxis"] = dict(CHART_LAYOUT["yaxis"], tickprefix="$")
+    layout["barmode"] = "group"
+    layout["xaxis"] = dict(CHART_LAYOUT["xaxis"], title="Month")
+    layout["yaxis"] = dict(CHART_LAYOUT["yaxis"], title="CAC / ARPU ($)", tickprefix="$")
+    layout["yaxis2"] = dict(
+        title="Payback (days)",
+        overlaying="y",
+        side="right",
+        showgrid=False,
+        tickfont=dict(color="#9CA3AF"),
+        titlefont=dict(color="#9CA3AF"),
+    )
     layout["hovermode"] = "x unified"
     fig.update_layout(**layout)
     return fig
