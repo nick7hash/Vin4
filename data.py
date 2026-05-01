@@ -218,6 +218,7 @@ def _get_base_final_df(start_date, end_date) -> pd.DataFrame:
         q = f"""
             SELECT
                 CAST(date AS DATE) AS date,
+                country AS ad_country,
                 rc_country,
                 COALESCE(rc_platform, platform) AS rc_platform,
                 SUM(gross_revenue) AS gross_revenue,
@@ -230,7 +231,7 @@ def _get_base_final_df(start_date, end_date) -> pd.DataFrame:
             FROM `{TABLE}`
             WHERE CAST(date AS DATE) BETWEEN '{extended_start}' AND '{end_date}'
               AND (rc_country != 'Total' OR rc_country IS NULL)
-            GROUP BY date, rc_country, rc_platform
+            GROUP BY date, ad_country, rc_country, rc_platform
         """
         try:
             df = client.query(q).to_dataframe()
@@ -925,6 +926,7 @@ def get_breakeven_cohort_data(start_date, end_date, country=None, platform=None,
         return pd.DataFrame()
 
     # CAC per acquisition month: spend/new paid users.
+    # Prefer country-level CAC when Adjust spend has country labels.
     adjust_df['month'] = adjust_df['date'].dt.to_period('M')
     rc_df['month'] = rc_df['date'].dt.to_period('M')
     monthly_spend_s = adjust_df.groupby('month')['spend'].sum()
@@ -934,6 +936,21 @@ def get_breakeven_cohort_data(start_date, end_date, country=None, platform=None,
     code_to_name = COUNTRY_MAP
     name_to_code = {v: k for k, v in COUNTRY_MAP.items()}
     rc_df['country_label'] = rc_df['rc_country'].map(lambda c: code_to_name.get(c, c))
+
+    # Build country-level CAC map when ad_country exists on Adjust rows.
+    country_month_cac = {}
+    if 'ad_country' in adjust_df.columns:
+        adjust_country_df = adjust_df.copy()
+        adjust_country_df['country_label'] = adjust_country_df['ad_country'].map(
+            lambda c: code_to_name.get(c, c)
+        )
+        adjust_country_df = adjust_country_df[adjust_country_df['country_label'].notna()]
+
+        if not adjust_country_df.empty:
+            spend_cm = adjust_country_df.groupby(['country_label', 'month'])['spend'].sum()
+            subs_cm = rc_df.groupby(['country_label', 'month'])['total_new_paid_subscriptions'].sum()
+            cac_cm = (spend_cm / subs_cm.replace(0, pd.NA)).fillna(0)
+            country_month_cac = {(ctry, m): float(v) for (ctry, m), v in cac_cm.items()}
 
     if country and country not in ('', 'All', 'Total'):
         c_as_name = code_to_name.get(country, country)
@@ -989,7 +1006,7 @@ def get_breakeven_cohort_data(start_date, end_date, country=None, platform=None,
         ctry = row['country']
         c_month = row['cohort_month']
         cohort_label = c_month.to_timestamp().strftime("%b %Y")
-        cac = float(monthly_cac_s.get(c_month, 0))
+        cac = float(country_month_cac.get((ctry, c_month), monthly_cac_s.get(c_month, 0)))
 
         c_metrics = metrics_df[metrics_df['country'] == ctry].set_index('month')
         months = pd.period_range(c_month, max_month, freq='M')

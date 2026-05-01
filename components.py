@@ -614,23 +614,23 @@ def breakeven_figure(df):
     if df is None or df.empty:
         return _empty_figure("No data available — try a wider date range")
     fig = go.Figure()
-    groups_df = df[["country", "cohort_label", "cohort_value"]].drop_duplicates()
-    groups_df = groups_df.sort_values(["cohort_value", "country"], ascending=[False, True])
-    groups = groups_df.to_dict("records")
-    for i, grp in enumerate(groups):
-        ctry = grp["country"]
-        cohort_label = grp["cohort_label"]
-        c_df = df[(df["country"] == ctry) & (df["cohort_label"] == cohort_label)].sort_values("month_index")
+    countries = sorted(df["country"].dropna().unique().tolist())
+    for i, ctry in enumerate(countries):
+        c_df = df[df["country"] == ctry].sort_values("month_num")
+        if c_df.empty:
+            continue
         color = ACCENT_COLORS[i % len(ACCENT_COLORS)]
-        x_nums = c_df["month_index"].tolist()
-        c_cac = [float(c_df["cac"].iloc[0])] * len(x_nums)
-        custom = c_df["calendar_month"].tolist()
+        x_nums = c_df["month_num"].tolist()
+        custom = c_df["month_label"].tolist()
+        non_zero_cac = [float(v) for v in c_df["avg_cac"].tolist() if v and float(v) > 0]
+        cac_val = (sum(non_zero_cac) / len(non_zero_cac)) if non_zero_cac else float(c_df["avg_cac"].iloc[0] or 0)
+        c_cac = [cac_val] * len(x_nums)
         is_primary = (i == 0)
         trace_visibility = True if is_primary else "legendonly"
 
         fig.add_trace(go.Scatter(
-            x=x_nums, y=c_df["cumulative_revenue_per_user"],
-            mode="lines+markers", name=f"{ctry} {cohort_label} — Cumulative Revenue",
+            x=x_nums, y=c_df["cumulative_arpu_net"],
+            mode="lines+markers", name=f"{ctry} — Cumulative Proceeds",
             line=dict(color=color, width=2.5), marker=dict(size=5),
             visible=trace_visibility,
             customdata=custom,
@@ -642,19 +642,19 @@ def breakeven_figure(df):
         ))
         fig.add_trace(go.Scatter(
             x=x_nums, y=c_cac,
-            mode="lines", name=f"{ctry} {cohort_label} — CAC",
+            mode="lines", name=f"{ctry} — CAC",
             line=dict(color=color, width=1.5, dash="dash"),
             visible=trace_visibility,
-            customdata=c_df["calendar_month"].tolist(),
+            customdata=custom,
             hovertemplate="<b>%{customdata}</b><br>CAC: $%{y:.2f}<extra></extra>",
         ))
 
-        cross = c_df[c_df["cumulative_revenue_per_user"] >= c_df["cac"]]
+        cross = c_df[c_df["cumulative_arpu_net"] >= cac_val]
         if is_primary and not cross.empty:
-            mx = int(cross.iloc[0]["month_index"])
-            my = float(cross.iloc[0]["cumulative_revenue_per_user"])
+            mx = int(cross.iloc[0]["month_num"])
+            my = float(cross.iloc[0]["cumulative_arpu_net"])
             fig.add_annotation(
-                x=mx, y=my, text=f"Break-even: {ctry} {cohort_label} M{mx}",
+                x=mx, y=my, text=f"Break-even: {ctry} M{mx}",
                 showarrow=True, arrowhead=2, arrowcolor=color,
                 font=dict(color=color, size=11),
                 bgcolor="rgba(11,15,26,0.8)", bordercolor=color, borderwidth=1,
